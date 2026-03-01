@@ -1,4 +1,4 @@
-# AI CLI Agent — Asystent developerski dla terminala
+# AI CLI Agent - Asystent developerski dla terminala
 
 **Wersja:** `1.4.6`  
 **Wymaga:** Python 3.11+, [Ollama](https://ollama.com)
@@ -49,9 +49,9 @@ sudo apt install yt-dlp ffmpeg
 
 | Flaga | Opis |
 |-------|------|
-| *(brak)* | Normalny — wykonuje akcje z potwierdzeniami |
+| *(brak)* | Normalny - wykonuje akcje z potwierdzeniami |
 | `--plan` | Tylko plan, zero zmian w plikach |
-| `--dry-run` | Symulacja — bez modyfikacji FS |
+| `--dry-run` | Symulacja - bez modyfikacji FS |
 | `--yes` | Auto-confirm, bez pytań (niebezpieczne!) |
 | `--global` | Bez kontekstu projektu |
 | `--verbose` | Diagnostyczne logi w konsoli |
@@ -74,7 +74,7 @@ ai co robi ten projekt  # Szybkie pytanie o projekt
 
 `IntentClassifier` rozpoznaje zamiar użytkownika zanim polecenie trafi do modelu: `explore`, `create`, `modify`, `refactor`, `execute`, `download_media`. `CommandClassifier` kategoryzuje ryzyko komend bash: `READ_ONLY` (bez confirm), `MODIFY`, `DESTRUCTIVE` (zawsze confirm).
 
-### Transaction Manager — ACID rollback
+### Transaction Manager - ACID rollback
 
 Każda operacja modyfikująca pliki jest objęta transakcją z automatycznym rollbackiem przy błędzie. Albo wszystkie akcje przechodzą, albo żadna.
 
@@ -121,7 +121,7 @@ ai najnowsza wersja pandas
 
 Silniki: DuckDuckGo (bez klucza) lub Brave Search (z kluczem). Cache 1h TTL, rate limit 10/min, whitelist domen. Domyślnie WYŁĄCZONY.
 
-### RAG — lokalna baza wiedzy
+### RAG - lokalna baza wiedzy
 
 Semantyczne wyszukiwanie w plikach `.md`/`.txt` z katalogu `knowledge/`:
 
@@ -252,7 +252,7 @@ Plik: `~/.config/ai/config.json`
 ```
 main.py                     CLI entry point
 core/
-  agent.py                  Główna logika — pętla wykonania (max 8 iteracji)
+  agent.py                  Główna logika - pętla wykonania (max 8 iteracji)
   action_executor.py        Wykonywanie akcji
   conversation_state.py     Historia dialogu (max 10 tur)
   json_parser.py            Parsowanie + rescue odpowiedzi modelu
@@ -273,7 +273,7 @@ project/
   capability_manager.py     Ograniczenia per-projekt
   global_memory.py          Persystentna pamięć ~/.config/ai/memory.json
   project_analyzer.py       Typ projektu, stos technologiczny
-  project_memory.py         .ai-context.json — konwencje, intenty
+  project_memory.py         .ai-context.json - konwencje, intenty
   semantic_decisions.py     Wykrywanie zmian semantycznych
 
 rag/
@@ -342,6 +342,6 @@ web/                        Panel administracyjny (Flask)
 
 ## Licencja
 
-MIT — używaj jak chcesz, na własną odpowiedzialność.
+MIT - używaj jak chcesz, na własną odpowiedzialność.
 
 **Wersja**: 1.4.6 | **Autor**: Paffcio | **Data**: 2026-02-28

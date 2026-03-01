@@ -1,4 +1,4 @@
-# Web Search — „Okno na świat"
+# Web Search - „Okno na świat"
 
 Moduł dający agentowi dostęp do internetu. Domyślnie **WYŁĄCZONY** ze względów bezpieczeństwa.
 
@@ -8,7 +8,7 @@ Moduł dający agentowi dostęp do internetu. Domyślnie **WYŁĄCZONY** ze wzgl
 ai web-search enable          # Włącz
 ai web-search status          # Sprawdź status i zależności
 
-# Po włączeniu — auto-trigger:
+# Po włączeniu - auto-trigger:
 ai jaka jest pogoda w Gdańsku
 ai najnowsza wersja pandas
 ai co nowego w Python 3.13

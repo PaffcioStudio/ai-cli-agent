@@ -1,18 +1,18 @@
-# FAQ — Najczęstsze pytania
+# FAQ - Najczęstsze pytania
 
 ## Ogólne
 
 ### Czym różni się AI CLI od ChatGPT / Claude w przeglądarce?
 
-AI CLI działa lokalnie (lub z lokalnym Ollama), ma pełny dostęp do systemu plików projektu, wykonuje komendy w terminalu, pamięta kontekst projektu między sesjami i daje Ci pełną kontrolę nad tym co robi. Nie jest to chatbot — to asystent operatorski.
+AI CLI działa lokalnie (lub z lokalnym Ollama), ma pełny dostęp do systemu plików projektu, wykonuje komendy w terminalu, pamięta kontekst projektu między sesjami i daje Ci pełną kontrolę nad tym co robi. Nie jest to chatbot - to asystent operatorski.
 
 ### Czy AI CLI może zepsuć mi pliki?
 
-Każda modyfikacja pliku jest objęta Transaction Managerem — jeśli cokolwiek pójdzie nie tak, zmiany są automatycznie cofane. Dodatkowo dla operacji destrukcyjnych zawsze wymagane jest potwierdzenie, a `rm -rf /` jest absolutnie zablokowane.
+Każda modyfikacja pliku jest objęta Transaction Managerem - jeśli cokolwiek pójdzie nie tak, zmiany są automatycznie cofane. Dodatkowo dla operacji destrukcyjnych zawsze wymagane jest potwierdzenie, a `rm -rf /` jest absolutnie zablokowane.
 
 ### Czy mogę używać AI CLI bez Ollamy?
 
-Nie — Ollama jest wymagana jako backend. Możesz jednak używać modeli cloud przez Ollama (np. `qwen3-coder:480b-cloud`) jeśli masz dostęp.
+Nie - Ollama jest wymagana jako backend. Możesz jednak używać modeli cloud przez Ollama (np. `qwen3-coder:480b-cloud`) jeśli masz dostęp.
 
 ### Czy działa na Windows?
 
@@ -63,7 +63,7 @@ ai config  # Tworzy nową konfigurację
 
 ## Użytkowanie
 
-### Agent pyta o potwierdzenie przy każdej operacji — jak to wyłączyć?
+### Agent pyta o potwierdzenie przy każdej operacji - jak to wyłączyć?
 
 Dla bezpiecznych komend (read, find, grep):
 
@@ -85,7 +85,7 @@ Dla małych modyfikacji (np. do 3 plików jednocześnie):
 }
 ```
 
-Uwaga: operacje DESTRUCTIVE (delete, move) zawsze wymagają confirm — to jest celowe.
+Uwaga: operacje DESTRUCTIVE (delete, move) zawsze wymagają confirm - to jest celowe.
 
 ### Agent ciągle pyta "czy mam to zrobić?" zamiast robić
 
@@ -101,7 +101,7 @@ ai prompt  # Otwiera nano z ~/.config/ai/prompt.txt
 ai capability disable allow_delete
 ```
 
-Zapis w `.ai-context.json` — per-projekt.
+Zapis w `.ai-context.json` - per-projekt.
 
 ### Jak sprawdzić co agent ostatnio robił?
 
@@ -149,7 +149,7 @@ Agent nie mógł zdekodować odpowiedzi modelu. Plik błędnej odpowiedzi zapisa
 
 ```bash
 du -sh ~/.cache/ai-cli/embeddings/
-rm -rf ~/.cache/ai-cli/embeddings/  # Wyczyść — zostanie przebudowany przy użyciu
+rm -rf ~/.cache/ai-cli/embeddings/  # Wyczyść - zostanie przebudowany przy użyciu
 ```
 
 ### Web search nie działa
@@ -195,7 +195,7 @@ Edytuj `web/server.py` (zmienna `PORT`) i `web/ai-panel.service`.
 
 ### Czy AI CLI wysyła mój kod gdzieś?
 
-Jeśli używasz modelu lokalnego (Ollama bez `:cloud`) — nie, nic nie opuszcza komputera. Przy modelach cloud (`:cloud` suffix) zapytania trafiają do zewnętrznego API.
+Jeśli używasz modelu lokalnego (Ollama bez `:cloud`) - nie, nic nie opuszcza komputera. Przy modelach cloud (`:cloud` suffix) zapytania trafiają do zewnętrznego API.
 
 ### Czy mogę używać AI CLI w repozytorium produkcyjnym?
 
@@ -211,7 +211,7 @@ Wtedy agent może tylko czytać i tworzyć pliki.
 
 ### Co to jest `.ai-context.json`?
 
-Plik z metadanymi projektu (typ, tech stack, capabilities, historia). **Nie powinien trafić do repozytorium** — dodaj do `.gitignore`:
+Plik z metadanymi projektu (typ, tech stack, capabilities, historia). **Nie powinien trafić do repozytorium** - dodaj do `.gitignore`:
 
 ```
 .ai-context.json

@@ -131,7 +131,7 @@ W `~/.config/ai/config.json`:
 
 ## Bezpieczeństwo
 
-Akcje `download_media` i `convert_media` mają risk level `EXECUTE` — zawsze wymagają potwierdzenia użytkownika, chyba że `allow_execute` wyłączone przez capabilities.
+Akcje `download_media` i `convert_media` mają risk level `EXECUTE` - zawsze wymagają potwierdzenia użytkownika, chyba że `allow_execute` wyłączone przez capabilities.
 
 ## Przyszłe rozszerzenia
 
@@ -139,4 +139,4 @@ Akcje `download_media` i `convert_media` mają risk level `EXECUTE` — zawsze w
 - Pobieranie napisów
 - Ekstrakcja miniaturki
 - Przycinanie wideo (`trim_video(path, start, end)`)
-- Quality presets (`preset="podcast"` — audio 64k)
+- Quality presets (`preset="podcast"` - audio 64k)

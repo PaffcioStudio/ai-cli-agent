@@ -4,8 +4,8 @@
 
 Od najwyższego:
 
-1. **Kod aplikacji (Python)** — zawsze nadrzędny nad promptem
-2. **Capabilities** (`.ai-context.json`) — twarde ograniczenia per-projekt
+1. **Kod aplikacji (Python)** - zawsze nadrzędny nad promptem
+2. **Capabilities** (`.ai-context.json`) - twarde ograniczenia per-projekt
 3. **Flagi CLI** (`--plan`, `--dry-run`, `--yes`)
 4. **Config** (`~/.config/ai/config.json`)
 5. **System prompt** (`~/.config/ai/prompt.txt`)
@@ -59,9 +59,9 @@ Aby włączyć:
 
 Niezależnie od uprawnień, zawsze zablokowane:
 
-**Absolutna blokada** — `rm -rf /` lub `rm -rf ~`
+**Absolutna blokada** - `rm -rf /` lub `rm -rf ~`
 
-**Blokada kontekstualna** — destrukcyjna komenda bez ścieżki absolutnej gdy:
+**Blokada kontekstualna** - destrukcyjna komenda bez ścieżki absolutnej gdy:
 - CWD == katalog domowy + globy (`*`, `.`)
 - CWD poza katalogiem projektu
 
@@ -126,10 +126,10 @@ echo ".ai-logs/" >> .gitignore
 echo ".ai-failed-response.txt" >> .gitignore
 ```
 
-## Web Search — bezpieczeństwo
+## Web Search - bezpieczeństwo
 
 - Domyślnie WYŁĄCZONY
-- Whitelist domen — tylko preapproved
+- Whitelist domen - tylko preapproved
 - Max 1MB na stronę, timeout 10s
 - Brak wykonywania scraped kodu/JavaScript
 - Rate limit: 10 zapytań/minutę

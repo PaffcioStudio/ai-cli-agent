@@ -1,4 +1,4 @@
-# AI CLI Agent — Roadmap
+# AI CLI Agent - Roadmap
 
 **Aktualna wersja:** `1.4.6`  
 **Cel:** `2.0.0` (Production Ready)
@@ -7,15 +7,15 @@
 
 ## Legenda
 
-- 🔴 **CRITICAL** — bloker, pilne
-- 🟠 **HIGH** — ważne, następny release
-- 🟡 **MEDIUM** — przydatne, można odłożyć
-- 🟢 **LOW** — miłe w posiadaniu
-- 🔵 **FUTURE** — pomysły na v2.0+
+- 🔴 **CRITICAL** - bloker, pilne
+- 🟠 **HIGH** - ważne, następny release
+- 🟡 **MEDIUM** - przydatne, można odłożyć
+- 🟢 **LOW** - miłe w posiadaniu
+- 🔵 **FUTURE** - pomysły na v2.0+
 
 ---
 
-## ✅ v1.2.x → v1.3.0 — UKOŃCZONO
+## ✅ v1.2.x → v1.3.0 - UKOŃCZONO
 
 Web Search, Transaction Manager, Intent/Command Classification, stabilność.
 
@@ -23,7 +23,7 @@ Ukończone: HTTP 429 + retry/backoff, Transaction Manager z rollbackiem, Web Sea
 
 ---
 
-## ✅ v1.3.x → v1.4.0 — UKOŃCZONO
+## ✅ v1.3.x → v1.4.0 - UKOŃCZONO
 
 Global Memory, poprawki zachowania agenta.
 
@@ -57,8 +57,8 @@ Auto-przełączanie modelu przy HTTP 429 / timeout:
 
 ### 🟠 Smart Package Management
 
-- [ ] `ai check dependencies` — aktualne wersje, luki bezpieczeństwa
-- [ ] `ai update dependencies` — update requirements.txt
+- [ ] `ai check dependencies` - aktualne wersje, luki bezpieczeństwa
+- [ ] `ai update dependencies` - update requirements.txt
 - [ ] Detekcja brakujących importów w kodzie
 - [ ] Obsługa: pip/poetry, npm/yarn, cargo, go.mod
 
@@ -72,7 +72,7 @@ Auto-przełączanie modelu przy HTTP 429 / timeout:
 
 ## 🚀 v1.5.x → v1.6.0
 
-**Priorytet:** Integracje — Home Assistant + Minecraft
+**Priorytet:** Integracje - Home Assistant + Minecraft
 
 ### 🟠 Home Assistant
 
@@ -124,9 +124,9 @@ ai minecraft backup create
 
 **Priorytet:** Workflows + Templates + AI Code Review
 
-- [ ] `ai workflow create/run` — multi-step pipelines
-- [ ] `ai template use <name> <dest>` — rozbudowany template system
-- [ ] `ai review <plik>` — issues, score, auto-fixes
+- [ ] `ai workflow create/run` - multi-step pipelines
+- [ ] `ai template use <name> <dest>` - rozbudowany template system
+- [ ] `ai review <plik>` - issues, score, auto-fixes
 
 ---
 

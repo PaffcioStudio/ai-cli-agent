@@ -1,4 +1,4 @@
-# Architektura — AI CLI Agent
+# Architektura - AI CLI Agent
 
 ## Przepływ wywołania
 
@@ -51,7 +51,7 @@ Główna klasa. Inicjalizuje wszystkie moduły, orkiestruje pętlę wykonania.
 5. Jeśli wyniki wymagają follow-up (np. `file_content`, `command_result`) → dodaj do historii i powtórz
 6. Jeśli model za długo zbiera dane bez tworzenia plików → wstrzyknij `force_action`
 
-**Historia rozmowy:** max 6 wiadomości (3 pary) — starsze są przycinane.
+**Historia rozmowy:** max 6 wiadomości (3 pary) - starsze są przycinane.
 
 **Token savings:** do historii trafia skrót akcji (`{type, path}`) + wyniki max 300 znaków, nie cały surowy JSON.
 
@@ -69,7 +69,7 @@ Klient HTTP do Ollama API.
 ### PromptBuilder (`core/prompt_builder.py`)
 
 Warstwowy builder per-request. Każde zapytanie dostaje:
-1. `core.txt` — zawsze
+1. `core.txt` - zawsze
 2. Warstwy inject wg triggerów w tekście użytkownika
 3. Statyczny kontekst (nick, projekt, pamięć, capabilities)
 
@@ -103,11 +103,11 @@ Wykonuje poszczególne typy akcji:
 
 ACID dla operacji na plikach:
 
-1. `tx.begin()` — start transakcji
-2. `tx.stage_backup(path)` — snapshot pliku przed modyfikacją
+1. `tx.begin()` - start transakcji
+2. `tx.stage_backup(path)` - snapshot pliku przed modyfikacją
 3. Wykonanie akcji
-4. `tx.commit()` — sukces, usuń snapshoty
-5. `tx.rollback(reason)` — przywróć snapshoty
+4. `tx.commit()` - sukces, usuń snapshoty
+5. `tx.rollback(reason)` - przywróć snapshoty
 
 Snapshoty przechowywane w `<projekt>/.ai-tx/` (tymczasowo).
 
@@ -116,21 +116,21 @@ Snapshoty przechowywane w `<projekt>/.ai-tx/` (tymczasowo).
 Centralny logger z dwoma poziomami:
 
 **Diagnostyczny** (`~/.cache/ai-cli/logs/`):
-- `debug.log` — wszystko
-- `errors.log` — tylko błędy
+- `debug.log` - wszystko
+- `errors.log` - tylko błędy
 
 **Audit trail** (`<projekt>/.ai-logs/`):
-- `operations.jsonl` — każda operacja (JSONL): timestamp, user, command, intent, akcje, sukces
-- `session.log` — czytelny log: `[ts] USER: "..." | AI: "..." | ACTIONS: edit_file:app.py`
-- `responses.jsonl` — surowe odpowiedzi modelu
+- `operations.jsonl` - każda operacja (JSONL): timestamp, user, command, intent, akcje, sukces
+- `session.log` - czytelny log: `[ts] USER: "..." | AI: "..." | ACTIONS: edit_file:app.py`
+- `responses.jsonl` - surowe odpowiedzi modelu
 
 ### ConversationState (`core/conversation_state.py`)
 
 Bufor ostatnich 10 tur dialogu. Format: `[{role: user/assistant, content: ...}]`.
 
-Obsługuje też pending confirmation — gdy akcja wymaga potwierdzenia, AI wraca do inputu użytkownika.
+Obsługuje też pending confirmation - gdy akcja wymaga potwierdzenia, AI wraca do inputu użytkownika.
 
-## Bezpieczeństwo — warstwy
+## Bezpieczeństwo - warstwy
 
 ```
 Wejście użytkownika
@@ -162,4 +162,4 @@ Wykonanie
 
 Embeddingi projektowe cache'owane per-plik w `~/.cache/ai-cli/embeddings/`. Klucz = hash ścieżki + mtime. Przy semantic_search agent wysyła zapytanie, dostaje top-K plików i ogranicza read do tych plików.
 
-SemanticDecisionManager (`project/semantic_decisions.py`) wykrywa "semantyczne zmiany" — np. zmiana nazwy klasy — i sugeruje powiązane pliki do aktualizacji.
+SemanticDecisionManager (`project/semantic_decisions.py`) wykrywa "semantyczne zmiany" - np. zmiana nazwy klasy - i sugeruje powiązane pliki do aktualizacji.

@@ -1,4 +1,4 @@
-# RAG — Lokalna Baza Wiedzy
+# RAG - Lokalna Baza Wiedzy
 
 System semantycznego wyszukiwania w lokalnych plikach Markdown/tekstowych. Wzbogaca odpowiedzi agenta o wiedzę dziedzinową zapisaną przez użytkownika.
 
@@ -34,7 +34,7 @@ ai knowledge status
 # Listuj pliki
 ai knowledge list
 
-# Teraz pytaj — RAG działa automatycznie
+# Teraz pytaj - RAG działa automatycznie
 ai jak formatujemy modele danych w tym projekcie
 ```
 

@@ -9,6 +9,20 @@ Narzędzie CLI wspomagające pracę z projektami przez AI. Nie jest to autonomic
 
 ---
 
+## 📚 Dokumentacja
+
+- [Architektura](docs/ARCHITECTURE.md)
+- [FAQ](docs/FAQ.md)
+- [Media Pipeline](docs/MEDIA_PIPELINE.md)
+- [RAG](docs/RAG.md)
+- [Web Search](docs/WEB_SEARCH.md)
+- [Security](docs/SECURITY.md)
+- [Roadmap](docs/ROADMAP.md)
+
+---
+
+---
+
 ## Filozofia
 
 **Co TO JEST:**

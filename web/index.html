@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pl" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI CLI Agent - Panel</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Monaco Editor for JSON -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-content">
+                <div class="header-left">
+                    <div class="logo">
+                        <i data-lucide="bot" class="logo-icon"></i>
+                        <h1>AI CLI Agent</h1>
+                    </div>
+                    <p class="subtitle">
+                        <i data-lucide="shield-check" class="subtitle-icon"></i>
+                        Panel administracyjny • localhost only
+                    </p>
+                </div>
+                <div class="header-right">
+                    <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                        <i data-lucide="sun" class="theme-icon-light"></i>
+                        <i data-lucide="moon" class="theme-icon-dark"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="tabs">
+            <button class="tab active" data-tab="status">
+                <i data-lucide="activity"></i>
+                <span>Status</span>
+            </button>
+            <button class="tab" data-tab="config">
+                <i data-lucide="settings"></i>
+                <span>Konfiguracja</span>
+            </button>
+            <button class="tab" data-tab="prompt">
+                <i data-lucide="sparkles"></i>
+                <span>System Prompt</span>
+            </button>
+            <button class="tab" data-tab="logs">
+                <i data-lucide="file-text"></i>
+                <span>Logi</span>
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <main>
+            <!-- TAB: Status -->
+            <section id="tab-status" class="tab-content active">
+                <!-- System Status Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="server"></i>
+                            <h2>Status systemu</h2>
+                        </div>
+                    </div>
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <div class="status-icon">
+                                <i data-lucide="package"></i>
+                            </div>
+                            <div class="status-info">
+                                <span class="label">Wersja</span>
+                                <span class="value" id="version">...</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon">
+                                <i data-lucide="layers"></i>
+                            </div>
+                            <div class="status-info">
+                                <span class="label">Tryb</span>
+                                <span class="value" id="mode">...</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon">
+                                <i data-lucide="brain"></i>
+                            </div>
+                            <div class="status-info">
+                                <span class="label">Model główny</span>
+                                <span class="value" id="chat-model">...</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon">
+                                <i data-lucide="scan-search"></i>
+                            </div>
+                            <div class="status-info">
+                                <span class="label">Model embeddings</span>
+                                <span class="value" id="embed-model">...</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon">
+                                <i data-lucide="network"></i>
+                            </div>
+                            <div class="status-info">
+                                <span class="label">Ollama host</span>
+                                <span class="value" id="ollama-host">...</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon status-indicator">
+                                <i data-lucide="activity"></i>
+                            </div>
+                            <div class="status-info">
+                                <span class="label">Ollama status</span>
+                                <span class="value" id="ollama-status">...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Capabilities Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="shield"></i>
+                            <h2>Capabilities</h2>
+                        </div>
+                    </div>
+                    <div id="capabilities-list" class="capabilities">
+                        <!-- Loaded by JS -->
+                    </div>
+                    <div class="note">
+                        <i data-lucide="info"></i>
+                        <div>
+                            <strong>Capabilities</strong> kontrolują jakie akcje AI może wykonywać.
+                            Zarządzaj nimi przez CLI: <code>ai capability enable/disable &lt;nazwa&gt;</code>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: Config -->
+            <section id="tab-config" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="file-code"></i>
+                            <h2>Edycja konfiguracji</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="note">
+                        <i data-lucide="folder"></i>
+                        <div>
+                            Plik: <code>~/.config/ai/config.json</code>
+                        </div>
+                    </div>
+
+                    <div id="config-editor-container" class="editor-container"></div>
+                    
+                    <div class="button-group">
+                        <button id="save-config" class="btn btn-primary">
+                            <i data-lucide="save"></i>
+                            <span>Zapisz</span>
+                        </button>
+                        <button id="reload-config" class="btn btn-secondary">
+                            <i data-lucide="refresh-cw"></i>
+                            <span>Odśwież</span>
+                        </button>
+                        <button id="format-config" class="btn btn-secondary">
+                            <i data-lucide="wand-2"></i>
+                            <span>Formatuj JSON</span>
+                        </button>
+                    </div>
+                    <div id="config-message" class="message"></div>
+                </div>
+            </section>
+
+            <!-- TAB: System Prompt -->
+            <section id="tab-prompt" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="sparkles"></i>
+                            <h2>System Prompt</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="note">
+                        <i data-lucide="lightbulb"></i>
+                        <div>
+                            System prompt wpływa na zachowanie AI (styl, preferencje, zasady).
+                            <strong>NIE omija zabezpieczeń</strong> ani capabilities.
+                        </div>
+                    </div>
+                    
+                    <div class="prompt-status">
+                        <div class="prompt-status-item">
+                            <i data-lucide="check-circle"></i>
+                            <div>
+                                <strong>Status</strong>
+                                <span id="prompt-exists">...</span>
+                            </div>
+                        </div>
+                        <div class="prompt-status-item">
+                            <i data-lucide="clock"></i>
+                            <div>
+                                <strong>Ostatnia modyfikacja</strong>
+                                <span id="prompt-modified">...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <textarea id="prompt-editor" rows="15" placeholder="Wpisz swój system prompt tutaj...
+
+Przykład:
+- Zawsze używaj polskich nazw zmiennych
+- Preferuj TypeScript zamiast JavaScript
+- Dodawaj obszerne komentarze do kodu
+- Używaj functional programming gdzie możliwe"></textarea>
+                    
+                    <div class="button-group">
+                        <button id="save-prompt" class="btn btn-primary">
+                            <i data-lucide="save"></i>
+                            <span>Zapisz</span>
+                        </button>
+                        <button id="reload-prompt" class="btn btn-secondary">
+                            <i data-lucide="refresh-cw"></i>
+                            <span>Odśwież</span>
+                        </button>
+                        <button id="clear-prompt" class="btn btn-danger">
+                            <i data-lucide="trash-2"></i>
+                            <span>Wyczyść</span>
+                        </button>
+                    </div>
+                    <div id="prompt-message" class="message"></div>
+                </div>
+            </section>
+
+            <!-- TAB: Logs -->
+            <section id="tab-logs" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="terminal"></i>
+                            <h2>Logi diagnostyczne</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="reload-logs" class="btn btn-secondary">
+                            <i data-lucide="refresh-cw"></i>
+                            <span>Odśwież</span>
+                        </button>
+                        <button id="copy-logs" class="btn btn-secondary">
+                            <i data-lucide="copy"></i>
+                            <span>Kopiuj</span>
+                        </button>
+                        <button id="download-logs" class="btn btn-secondary">
+                            <i data-lucide="download"></i>
+                            <span>Pobierz</span>
+                        </button>
+                    </div>
+                    
+                    <pre id="logs-viewer" class="logs">Ładowanie logów...</pre>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <div class="footer-content">
+                <div class="footer-section">
+                    <i data-lucide="shield-check"></i>
+                    <p>AI CLI Agent • Panel lokalny (localhost only)</p>
+                </div>
+                <div class="footer-section warning">
+                    <i data-lucide="alert-triangle"></i>
+                    <p>Ten panel NIE wykonuje poleceń. CLI pozostaje jedynym interfejsem wykonawczym.</p>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

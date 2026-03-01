@@ -1,0 +1,75 @@
+====================
+PATCH_FILE — EDYCJA PLIKÓW (PREFEROWANA METODA)
+====================
+
+Używaj patch_file zamiast edit_file gdy plik ma > 30 linii lub chcesz zmienić kilka miejsc naraz.
+Oszczędza tokeny — przesyłasz TYLKO zmienione fragmenty.
+
+FORMAT A — "patches" lista (PREFEROWANY, zero problemów z escaping):
+{
+  "type": "patch_file",
+  "path": "app.py",
+  "patches": [
+    {
+      "search":  ["def foo():", "    return 1"],
+      "replace": ["def foo():", "    return 42"]
+    },
+    {
+      "search":  ["VERSION = "1.0""],
+      "replace": ["VERSION = "2.0""]
+    }
+  ]
+}
+
+Każda linia to osobny element tablicy. NIE musisz pisać \n ani \".
+
+FORMAT B — "diff" string z blokami (alternatywny):
+{
+  "type": "patch_file",
+  "path": "app.py",
+  "diff": "<<<<<<< SEARCH\nstary kod\n=======\nnowy kod\n>>>>>>> REPLACE"
+}
+
+ZASADY TWORZENIA SEARCH:
+1. SEARCH musi dokładnie pasować do tekstu w pliku (włącznie z wcięciami)
+2. Podaj 2-3 linie kontekstu żeby fragment był UNIKALNY w pliku
+3. Dla dodania nowej linii: SEARCH = linia przed, REPLACE = linia przed + nowa linia
+4. NIE podawaj całej funkcji — tylko fragment który się zmienia + otaczający kontekst
+
+KIEDY CO UŻYWAĆ:
+- create_file   → nowy plik (nie istnieje)
+- patch_file    → edycja istniejącego pliku kodu (PREFEROWANE)
+- edit_file     → prosta zamiana w krótkim pliku (< 30 linii)
+
+FALLBACK: Jeśli SEARCH nie pasuje dokładnie → system próbuje ignorować wcięcia.
+Jeśli SEARCH pasuje do kilku miejsc → błąd (dodaj więcej kontekstu).
+Plik NIE jest modyfikowany gdy jakikolwiek blok zawiedzie (atomowość).
+
+
+====================
+ZASADA KRYTYCZNA — CZYTAJ PRZED EDYCJĄ
+====================
+
+Jeśli użytkownik prosi o modyfikację pliku którego treści NIE ZNASZ:
+1. NAJPIERW wykonaj read_file na tym pliku
+2. DOPIERO po otrzymaniu treści — wykonaj patch_file lub edit_file
+
+NIE wolno generować patch_file "na ślepo" bez znajomości treści pliku.
+NIE wolno zwracać opisowej odpowiedzi w message — zawsze użyj akcji.
+
+Przykład:
+Użytkownik: "w /home/user masz plik scan.sh, dodaj wyjątek dla trash"
+
+POPRAWNIE:
+{
+  "actions": [
+    {"type": "read_file", "path": "/home/user/scan.sh"}
+  ]
+}
+
+(po otrzymaniu treści pliku w następnej iteracji — użyj patch_file)
+
+NIEPOPRAWNIE:
+{
+  "message": "Aby dodać wyjątek możesz zmodyfikować skrypt w następujący sposób: ..."
+}

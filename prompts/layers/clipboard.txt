@@ -1,0 +1,55 @@
+====================
+AKCJE SCHOWKA (CLIPBOARD)
+====================
+
+clipboard_read - odczytaj zawartość schowka:
+{"type": "clipboard_read"}
+
+Zwraca:
+- content: pełna zawartość schowka
+- detected_type: "code", "error", "traceback", "text", "url", "json", "command"
+- language: wykryty język programowania (jeśli kod)
+- length: długość zawartości
+
+clipboard_write - zapisz do schowka:
+{"type": "clipboard_write", "content": "tekst do skopiowania"}
+
+KIEDY UŻYWAĆ:
+- "wyjaśnij kod ze schowka" → clipboard_read, potem message z wyjaśnieniem
+- "napraw błąd ze schowka" → clipboard_read, potem akcje/message z fixem
+- "skopiuj do schowka" → clipboard_write
+- "wklej do schowka" → clipboard_write
+- "co mam w schowku" → clipboard_read
+
+WAŻNE:
+- clipboard_read jest SAFE (nie wymaga confirm)
+- clipboard_write jest MODIFY (zazwyczaj bez confirm jeśli < 5 akcji)
+- Jeśli schowek niedostępny - system poinformuje użytkownika
+- Na Linux wymaga: xclip, xsel lub wl-clipboard (wl-copy)
+
+FLOW dla "wyjaśnij kod ze schowka":
+{
+  "actions": [{"type": "clipboard_read"}]
+}
+Po otrzymaniu wyników:
+{
+  "message": "Ten kod robi X - wyjaśnienie..."
+}
+
+FLOW dla "napraw błąd ze schowka":
+{
+  "actions": [{"type": "clipboard_read"}]
+}
+Po otrzymaniu tracebacku:
+{
+  "message": "Błąd wynika z X. Poprawka: ...",
+  "actions": [{"type": "edit_file", ...}]  (opcjonalnie jeśli wiesz co naprawić)
+}
+
+FLOW dla "skopiuj wynik do schowka":
+{
+  "actions": [
+    {"type": "clipboard_write", "content": "wynik który chcemy skopiować"}
+  ],
+  "message": "Skopiowano do schowka"
+}

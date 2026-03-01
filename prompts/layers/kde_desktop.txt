@@ -1,0 +1,63 @@
+====================
+SKRÓTY NA PULPICIE KDE PLASMA
+====================
+
+KOSZ (Trash) - prawidłowy skrót w KDE:
+  [Desktop Entry]
+  Name=Kosz
+  Type=Link
+  URL=trash:/
+  Icon=user-trash
+
+  KRYTYCZNE: Type=Link + URL= (NIE Type=Application + Exec=xdg-open trash:/)
+  Tylko Type=Link daje opcję "Opróżnij kosz" w menu prawego przycisku myszy.
+  Tylko Type=Link zmienia ikonę automatycznie gdy kosz jest pełny (user-trash-full).
+
+KATALOG DOMOWY / INNE FOLDERY:
+  [Desktop Entry]
+  Name=Dokumenty
+  Type=Link
+  URL=/home/USER/Documents/
+  Icon=folder-documents
+
+OGÓLNA ZASADA dla skrótów do folderów/protokołów w KDE:
+  → Type=Link + URL=  (nie Type=Application + Exec=xdg-open)
+
+- Format: plik .desktop z Exec=steam steam://rungameid/APPID
+- Ikona gry: szukaj w appcache lub librarycache Steam
+  {"type": "run_command", "command": "find ~/.steam ~/.local/share/Steam -name '*APPID*icon*' -o -name '*APPID*_icon*' 2>/dev/null | head -5"}
+- Ikona z librarycache (najlepsza jakość):
+  ~/.steam/steam/appcache/librarycache/APPID_icon.jpg
+  ~/.local/share/Steam/appcache/librarycache/APPID_icon.jpg
+- Jeśli brak ikony lokalnie → pobierz przez curl z CDN Steam:
+  {"type": "run_command", "command": "curl -sL -o ~/.local/share/icons/steam_icon_APPID.jpg 'https://cdn.cloudflare.steamstatic.com/steam/apps/APPID/header.jpg'"}
+  Użyj header.jpg (poziome) lub icon.jpg (kwadratowe)
+  Przykład dla 7 Days to Die (AppID 251570):
+  curl -sL -o ~/.local/share/icons/steam_icon_251570.jpg 'https://cdn.cloudflare.steamstatic.com/steam/apps/251570/header.jpg'
+
+FLOW dla "stwórz skrót do gry Steam":
+1. Sprawdź AppID gry (szukaj w kontekście lub web_search)
+2. Sprawdź lokalizację Steam: find ~/.steam ~/.local/share/Steam -name appcache -type d
+3. Szukaj ikony: find ~/.steam/steam/appcache/librarycache ~/.local/share/Steam/appcache/librarycache -name "*APPID*" 2>/dev/null
+4. Jeśli brak ikony → pobierz curl z Steam CDN (header.jpg lub icon.jpg)
+5. Utwórz plik .desktop z Icon= wskazującym na pobraną ikonę (pełna ścieżka absolutna!)
+6. chmod +x na pliku .desktop
+
+PRZYKŁAD PLIKU .desktop DLA GIER STEAM:
+[Desktop Entry]
+Name=Nazwa Gry
+Comment=Uruchom przez Steam
+Exec=steam steam://rungameid/APPID
+Icon=/home/USER/.local/share/icons/steam_icon_APPID.jpg
+Terminal=false
+Type=Application
+Categories=Game;
+
+WAŻNE dla ikony w .desktop:
+- Użyj PEŁNEJ ŚCIEŻKI ABSOLUTNEJ do pliku ikony (nie nazwy symbolicznej)
+- Icon=/home/user/.local/share/icons/plik.jpg działa zawsze
+- Icon=steam_icon_APPID działa TYLKO jeśli plik jest w katalogu ikon systemu
+- Po pobraniu ikony veryfikuj że plik nie jest pusty: stat plik_ikony
+
+SZUKANIE GIER NA DYSKACH:
+{"type": "run_command", "command": "findmnt --real -o TARGET -n | xargs -I{} find {} -maxdepth 6 -type d -name 'NAZWA_GRY' 2>/dev/null | head -5"}

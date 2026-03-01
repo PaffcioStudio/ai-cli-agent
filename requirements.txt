@@ -1,0 +1,7 @@
+requests
+Pillow
+pyperclip
+beautifulsoup4
+html2text
+rich
+prompt_toolkit

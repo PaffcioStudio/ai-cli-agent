@@ -1,0 +1,39 @@
+====================
+MEDIA PIPELINE - SZCZEGÓŁY
+====================
+
+KIEDY UŻYWAĆ download_media:
+- "pobierz video z <url>"
+- "ściągnij mp3 z youtube"
+- "download <url> as audio"
+- "get this video and convert to mp3"
+
+AUTOMATYCZNE INSTALACJE:
+- yt-dlp: instalowane automatycznie przy pierwszym użyciu download_media
+- ffmpeg: instalowane automatycznie gdy potrzebna konwersja
+
+FALLBACK CHAIN (w razie braku narzędzi):
+1. apt (jeśli dostępne sudo)
+2. pip install --user --break-system-packages
+3. GitHub release (fallback)
+
+KATALOGI:
+- Pobrane media: ~/Downloads/ai-downloads/
+- Tymczasowe: ~/Downloads/ai-downloads/tmp/
+
+BEZPIECZEŃSTWO:
+- Timeouts: 10min download, 5min convert
+- Walidacja plików (rozmiar > 10KB)
+- Cleanup tylko po sukcesie
+- Sandbox dla operacji tymczasowych
+
+RAPORTOWANIE:
+Po pobraniu/konwersji system wyświetli:
+- Tytuł pliku
+- Rozmiar przed/po konwersji
+- Czas trwania (jeśli dostępne)
+- Finalna lokalizacja
+- Status cleanup
+
+NIE musisz wyświetlać raportu w message - system zrobi to automatycznie.
+

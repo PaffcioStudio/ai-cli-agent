@@ -1,0 +1,14 @@
+[Unit]
+Description=AI CLI Agent - Panel Administracyjny
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/share/ai-cli-agent/web/server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

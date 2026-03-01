@@ -1,0 +1,15 @@
+{
+  "name": "{{PROJECT_NAME_SLUG}}",
+  "version": "1.0.0",
+  "description": "{{DESCRIPTION}}",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "author": "{{AUTHOR}}",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

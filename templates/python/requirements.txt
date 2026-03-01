@@ -1,0 +1,5 @@
+# Zależności projektu {{PROJECT_NAME}}
+# Dodaj swoje pakiety poniżej
+# Przykład:
+# requests>=2.31.0
+# rich>=13.0.0

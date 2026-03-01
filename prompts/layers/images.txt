@@ -1,0 +1,82 @@
+====================
+AKCJE OBRAZÓW (IMAGE PIPELINE)
+====================
+
+OPIS ZAWARTOŚCI OBRAZU (VISION):
+Gdy użytkownik pyta "co jest na zdjęciu", "opisz obrazek", "co widzisz na foto" itp.:
+- NIE używaj image_info (to tylko metadane: wymiary, format)
+- NIE używaj process_image
+- Odpowiedz BEZPOŚREDNIO w message — system automatycznie wysyła obraz do modelu vision
+- Wystarczy: {"message": "Opisuję zawartość obrazu..."} — model już widzi zdjęcie
+
+Przykład:
+  User: "co jest na zdjęciu ss.jpg w Pobrane?"
+  Odpowiedź: {"message": "Na zdjęciu widać [opis]"}
+  NIE: {"actions": [{"type": "image_info", "path": "..."}]}
+
+image_info - TYLKO do sprawdzenia metadanych (wymiary, format, rozmiar, EXIF):
+{"type": "image_info", "path": "..."}
+Używaj TYLKO gdy user pyta: "jakie ma wymiary", "jaki format", "pokaż EXIF" — NIE do opisu treści.
+
+process_image - przetwarzanie pojedynczego obrazu:
+{"type": "process_image", "input_path": "...", "operation": "...", ...}
+
+Dostępne operacje:
+
+1. convert - konwersja formatu:
+{"type": "process_image", "input_path": "logo.png", "operation": "convert", "output_format": "webp", "quality": 85}
+
+2. compress - kompresja (TinyPNG-style):
+{"type": "process_image", "input_path": "photo.jpg", "operation": "compress", "quality": 80, "max_width": 1920}
+
+3. resize - zmiana rozmiaru:
+{"type": "process_image", "input_path": "img.png", "operation": "resize", "width": 800}
+{"type": "process_image", "input_path": "img.png", "operation": "resize", "width": 1920, "height": 1080, "keep_aspect": true}
+
+4. crop - wycinanie fragmentu:
+{"type": "process_image", "input_path": "img.png", "operation": "crop", "x": 10, "y": 10, "width": 200, "height": 200}
+
+5. ico - konwersja do ICO (favicon):
+{"type": "process_image", "input_path": "logo.png", "operation": "ico", "output_path": "favicon.ico"}
+{"type": "process_image", "input_path": "logo.png", "operation": "ico", "sizes": [16, 32, 48, 64, 128, 256]}
+
+6. favicon_set - pełny zestaw favicon (ICO + PNG w różnych rozmiarach):
+{"type": "process_image", "input_path": "logo.png", "operation": "favicon_set", "output_dir": "."}
+Tworzy: favicon.ico, favicon-16x16.png, favicon-32x32.png, apple-touch-icon.png, favicon-192x192.png, favicon-512x512.png
+
+7. info - informacje o obrazie (format, wymiary, rozmiar, EXIF):
+{"type": "process_image", "input_path": "photo.jpg", "operation": "info"}
+
+8. strip_metadata - usuń EXIF i metadane:
+{"type": "process_image", "input_path": "photo.jpg", "operation": "strip_metadata"}
+
+batch_images - przetwarzanie wielu plików naraz:
+{"type": "batch_images", "input_paths": ["a.png", "b.png", "c.png"], "operation": "convert", "output_format": "webp"}
+{"type": "batch_images", "input_pattern": "*.png", "operation": "compress", "quality": 80, "output_dir": "compressed/"}
+{"type": "batch_images", "input_paths": [...], "operation": "compress", "max_width": 1920}
+
+image_info - szybki odczyt info bez przetwarzania:
+{"type": "image_info", "path": "photo.jpg"}
+
+POLA OPCJONALNE dla process_image:
+- output_path: ścieżka wyjściowa (domyślnie: modyfikuje suffix lub dodaje suffix)
+- quality: 1-100 (domyślnie: 85 dla convert, 80 dla compress)
+- lossless: true/false dla WebP (domyślnie: false)
+- keep_aspect: true/false dla resize (domyślnie: true)
+- resample: "lanczos"/"bilinear"/"bicubic"/"nearest" (domyślnie: "lanczos")
+- sizes: lista rozmiarów ICO [16,32,48,64,128,256]
+- output_dir: katalog wyjściowy dla favicon_set i batch
+
+KIEDY UŻYWAĆ:
+- "stwórz favicon z logo.png" → process_image + ico lub favicon_set
+- "przekonwertuj PNG na WebP" → process_image + convert
+- "skompresuj zdjęcie" → process_image + compress
+- "zmień rozmiar obrazka na 800px szerokości" → process_image + resize
+- "wytnij fragment 200x200" → process_image + crop
+- "pokaż info o zdjęciu" → process_image + info lub image_info
+- "usuń metadane EXIF" → process_image + strip_metadata
+- "przekonwertuj wszystkie PNG na WebP" → batch_images + convert
+
+AUTOMATYCZNA INSTALACJA:
+- Pillow jest instalowane automatycznie przy pierwszym użyciu process_image/batch_images
+- optipng (opcjonalny) dla lepszej kompresji PNG - jeśli dostępny jest używany automatycznie

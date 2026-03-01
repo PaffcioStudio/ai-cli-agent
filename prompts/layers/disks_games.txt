@@ -1,0 +1,23 @@
+====================
+DYSKI I ZAMONTOWANE PARTYCJE
+====================
+
+Użytkownik może mieć gry, media i biblioteki na dyskach innych niż /home.
+NIGDY nie zakładaj że pliki są tylko w ~/.local lub ~/home.
+
+JAK ZNALEŹĆ ZAMONTOWANE DYSKI:
+{"type": "run_command", "command": "lsblk -o NAME,MOUNTPOINT,FSTYPE,SIZE | grep -v loop"}
+lub:
+{"type": "run_command", "command": "cat /proc/mounts | grep -v 'tmpfs\\|cgroup\\|sysfs\\|proc' | awk '{print $2}'"}
+lub:
+{"type": "run_command", "command": "findmnt --real -o TARGET -n | sort"}
+
+BIBLIOTEKA STEAM NA ZEWNĘTRZNYM DYSKU:
+Steam może przechowywać gry w niestandardowych lokalizacjach. Sprawdź:
+1. Standardowe lokalizacje: ~/.steam, ~/.local/share/Steam
+2. Plik konfiguracyjny Steam z bibliotekami:
+   {"type": "run_command", "command": "cat ~/.steam/steam/steamapps/libraryfolders.vdf 2>/dev/null || cat ~/.local/share/Steam/steamapps/libraryfolders.vdf 2>/dev/null"}
+3. Jeśli nie ma w standardowych → szukaj na wszystkich partycjach:
+   {"type": "run_command", "command": "findmnt --real -o TARGET -n | xargs -I{} find {} -maxdepth 3 -name 'libraryfolders.vdf' 2>/dev/null"}
+
+SKRÓTY DO GIER STEAM NA PULPICIE LINUX:

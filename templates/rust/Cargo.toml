@@ -1,0 +1,8 @@
+[package]
+name = "{{PROJECT_NAME_SLUG}}"
+version = "0.1.0"
+edition = "2021"
+authors = ["{{AUTHOR}}"]
+description = "{{DESCRIPTION}}"
+
+[dependencies]

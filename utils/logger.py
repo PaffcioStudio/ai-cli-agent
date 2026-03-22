@@ -8,9 +8,10 @@ LOKALIZACJE:
 
 import logging
 import json
+import uuid
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 import os
 
 class AILogger:
@@ -25,6 +26,8 @@ class AILogger:
     def __init__(self, project_root: Optional[Path] = None, config: Optional[Dict] = None):
         self.config = config or {}
         self.project_root = project_root
+        # run_id tracking: mapuje (user_input) → (run_id, iteration_count)
+        self._run_registry: Dict[str, list] = {}  # key → [run_id, iter]
         
         # Cache directory dla logów diagnostycznych
         self.cache_dir = Path.home() / ".cache" / "ai-cli" / "logs"
@@ -97,6 +100,25 @@ class AILogger:
     
     # === DIAGNOSTIC LOGS ===
     
+    def _get_run_context(self, user_input: str) -> Tuple[str, int]:
+        """
+        Zwraca (run_id, iteration) dla danego polecenia użytkownika.
+        Pierwsze wywołanie dla danego input → nowy UUID, iteration=1.
+        Kolejne → ten sam UUID, iteration rośnie.
+        run_id jest resetowany po wywołaniu reset_run() lub przy nowym zapytaniu
+        nie zarejestrowanym wcześniej.
+        """
+        if user_input not in self._run_registry:
+            self._run_registry[user_input] = [str(uuid.uuid4())[:8], 0]
+        self._run_registry[user_input][1] += 1
+        run_id, iteration = self._run_registry[user_input]
+        return run_id, iteration
+
+    def reset_run(self, user_input: str):
+        """Wyczyść run_id dla danego polecenia (wywołaj po zakończeniu rundy)."""
+        self._run_registry.pop(user_input, None)
+
+
     def debug(self, message: str):
         """Log debug message"""
         self.debug_logger.debug(message)
@@ -131,16 +153,33 @@ class AILogger:
                            error: Optional[str] = None, rescued: bool = False):
         """
         Zapisz surową odpowiedź modelu do .ai-logs/responses.jsonl
-        Zawsze loguje — niezależnie od log_model_raw_output w configu.
-        Gdy brak projektu (project_logs_dir=None) — zapisuje do cache_dir.
+        
+        Poprawki vs oryginał:
+        - raw_response zapisywane po strippowaniu markdown fences (```json...```)
+          żeby nie zaśmiecać logu; oryginał dostępny w raw_original gdy inny
+        - run_id z tego samego kontekstu co log_operation
         """
         log_dir = self.project_logs_dir if self.project_logs_dir else self.cache_dir
 
+        run_id, _ = self._get_run_context(user_input)
+
+        # Strip markdown code fences jeśli model owinął JSON w ```
+        import re as _re
+        _fence_re = _re.compile(r'^```(?:json)?\s*\n(.*?)\n```\s*$', _re.DOTALL)
+        cleaned_raw = raw.strip()
+        fence_match = _fence_re.match(cleaned_raw)
+        had_fence = bool(fence_match)
+        if had_fence:
+            cleaned_raw = fence_match.group(1).strip()
+
         entry = {
             "timestamp": datetime.now().isoformat(),
+            "run_id": run_id,
             "user_input": user_input,
-            "raw_response": raw,
-            "raw_len": len(raw),
+            "raw_response": cleaned_raw,
+            "raw_len": len(cleaned_raw),
+            # Zachowaj oryginalny raw tylko gdy był zaśmiecony fences
+            **({"raw_original_had_fence": True} if had_fence else {}),
             "error": error,
             "rescued_from_message": rescued,
             "parsed_type": (
@@ -190,32 +229,63 @@ class AILogger:
         """
         Zaloguj operację w projekcie (audit trail, lub cache gdy brak projektu).
         
-        Format JSONL (JSON Lines) - każda linia = osobny event
+        Poprawki vs oryginał:
+        - run_id: UUID grupujący wszystkie iteracje tego samego polecenia użytkownika
+        - iteration: numer rundy w ramach jednego polecenia
+        - success: uwzględnia też fallback-echo ("Nie znaleziono", "not found" itp.)
+          exit_code==0 z fallbackiem echo NIE jest prawdziwym sukcesem
         """
         log_dir = self.project_logs_dir if self.project_logs_dir else self.cache_dir
         operations_file = log_dir / "operations.jsonl"
-        
+
+        run_id, iteration = self._get_run_context(user_input)
+
+        # Frazy w stdout świadczące o semantycznym niepowodzeniu mimo exit 0
+        _FAILURE_PHRASES = (
+            "nie znaleziono", "not found", "no such file",
+            "błąd", "error", "failed", "command not found",
+        )
+
+        def _action_success(action: Dict, result) -> bool:
+            if isinstance(result, str) and result.startswith("[BŁĄD]"):
+                return False
+            if isinstance(result, str):
+                low = result.lower()
+                if any(ph in low for ph in _FAILURE_PHRASES):
+                    return False
+            if isinstance(result, dict):
+                if result.get("type") == "error":
+                    return False
+                # Poprawka 8: jawny niezerowy returncode = niepowodzenie,
+                # nawet jeśli stdout nie zawiera frazy błędu
+                if isinstance(result.get("returncode"), int) and result["returncode"] != 0:
+                    return False
+                out = str(result.get("stdout", "") + result.get("stderr", "")).lower()
+                if any(ph in out for ph in _FAILURE_PHRASES):
+                    return False
+            return True
+
+        action_entries = [
+            {
+                "type": a.get("type"),
+                "path": a.get("path") or a.get("from"),
+                "success": _action_success(a, r)
+            }
+            for a, r in zip(actions, results)
+        ]
+
         entry = {
             "timestamp": datetime.now().isoformat(),
+            "run_id": run_id,
+            "iteration": iteration,
             "user": self.config.get("nick", "user"),
             "command": user_input,
             "intent": intent,
             "actions_count": len(actions),
-            "actions": [
-                {
-                    "type": a.get("type"),
-                    "path": a.get("path") or a.get("from"),
-                    "success": not (isinstance(r, str) and r.startswith("[BŁĄD]"))
-                }
-                for a, r in zip(actions, results)
-            ],
-            "overall_success": all(
-                not (isinstance(r, str) and r.startswith("[BŁĄD]"))
-                for r in results
-            )
+            "actions": action_entries,
+            "overall_success": all(ae["success"] for ae in action_entries),
         }
-        
-        # Append do JSONL
+
         try:
             with open(operations_file, 'a') as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + '\n')

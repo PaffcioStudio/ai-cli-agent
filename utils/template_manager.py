@@ -127,11 +127,14 @@ def apply_template(
 
     for rel_file in tpl["files"]:
         src = tpl_path / rel_file
-        dst = dest_dir / rel_file
+
+        # Podstaw zmienne również w ścieżce docelowej (np. {{PROJECT_NAME_SLUG}}/ → moj-projekt/)
+        rel_file_resolved = apply_variables(rel_file, variables)
+        dst = dest_dir / rel_file_resolved
 
         # Nie nadpisuj istniejących (chyba że overwrite=True)
         if dst.exists() and not overwrite:
-            skipped.append(rel_file)
+            skipped.append(rel_file_resolved)
             continue
 
         # Utwórz katalogi jeśli potrzeba
@@ -147,14 +150,14 @@ def apply_template(
             src_mode = src.stat().st_mode
             dst.chmod(src_mode)
 
-            created.append(rel_file)
+            created.append(rel_file_resolved)
         except Exception as e:
             return {
                 "success": False,
                 "template": template_name,
                 "created": created,
                 "skipped": skipped,
-                "error": f"Błąd kopiowania {rel_file}: {e}",
+                "error": f"Błąd kopiowania {rel_file_resolved}: {e}",
             }
 
     return {

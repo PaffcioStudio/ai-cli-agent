@@ -4,15 +4,19 @@ from core.config import load_config
 from core.ollama import OllamaClient, OllamaConnectionError
 from core.agent import AIAgent
 from ui_layer.ui import UI, Colors
+from core.conversation_history import ConversationHistory
 from ui_layer.commands import (
     cmd_prompt, cmd_logs, cmd_panel, cmd_init, cmd_config,
     cmd_model, cmd_stats, cmd_history, cmd_analyze, cmd_review,
     cmd_audit, cmd_capability, cmd_web_search, cmd_memory,
-    cmd_knowledge
+    cmd_knowledge,
+    cmd_export,
+    cmd_deps,          # ← DODAJ
+    get_panel_url,
 )
 
 # WERSJA
-__version__ = "1.4.6"
+__version__ = "1.5.0"
 
 
 def _multiline_input() -> str:
@@ -28,6 +32,7 @@ def _multiline_input() -> str:
     import tty
     import termios
     import select
+    import shutil
 
     # Jeśli nie TTY (pipe/redirect) — zwykły readline
     if not sys.stdin.isatty():
@@ -35,6 +40,12 @@ def _multiline_input() -> str:
         if not line:
             raise EOFError
         return line.rstrip("\n")
+
+    # Szerokość terminala — kluczowa do śledzenia zawijania wierszy
+    term_cols = shutil.get_terminal_size().columns
+
+    PROMPT_LEN = 2   # widoczna długość "❯ "
+    INDENT_LEN = 2   # wcięcie "  " dla kolejnych linii (Shift+Enter)
 
     sys.stdout.write("\033[92m❯\033[0m ")
     sys.stdout.flush()
@@ -64,6 +75,34 @@ def _multiline_input() -> str:
         lines.append("".join(current))
         current.clear()
         sys.stdout.write("\n\r  ")
+        sys.stdout.flush()
+
+    def backspace_one():
+        """
+        Usuń ostatni znak z current[] i cofnij kursor na ekranie.
+        Obsługuje przekraczanie granicy wizualnego zawijania linii.
+        """
+        if not current:
+            return
+
+        offset = PROMPT_LEN if not lines else INDENT_LEN
+        pos_before = offset + len(current)    # pozycja kursora przed usunięciem
+        col_before  = pos_before % term_cols  # kolumna ekranowa przed usunięciem
+
+        current.pop()
+
+        if col_before == 0:
+            # Kursor jest na początku wizualnego wiersza (zawinięcie!) —
+            # trzeba wskoczyć wiersz wyżej i usunąć znak tam.
+            col_after = (pos_before - 1) % term_cols
+            # \033[A       — wiersz wyżej
+            # \033[{n}G    — przejdź do kolumny n (1-based)
+            # spacja        — nadpisz usuwany znak
+            # \033[{n}G    — wróć kursor na tę samą pozycję
+            sys.stdout.write(f"\033[A\033[{col_after + 1}G \033[{col_after + 1}G")
+        else:
+            sys.stdout.write("\b \b")
+
         sys.stdout.flush()
 
     try:
@@ -104,14 +143,15 @@ def _multiline_input() -> str:
             # Backspace
             if b in (b"\x7f", b"\x08"):
                 if current:
-                    current.pop()
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
+                    backspace_one()
                 elif lines:
-                    # Cofnij do poprzedniej linii
+                    # Cofnij do poprzedniej logicznej linii (Shift+Enter)
                     prev = lines.pop()
                     current.extend(list(prev))
-                    sys.stdout.write(f"\033[A\033[2K\r  {prev}")
+                    offset = PROMPT_LEN if not lines else INDENT_LEN
+                    # Wróć o jeden wiersz ekranowy i odbuduj linię
+                    joined = ''.join(current)
+                    sys.stdout.write("\033[A\033[" + str(offset + 1) + "G\033[K" + joined)
                     sys.stdout.flush()
                 continue
 
@@ -146,139 +186,151 @@ def _multiline_input() -> str:
     return "\n".join(lines + ["".join(current)])
 
 def show_help():
-    """Pokaż pomoc (bez inicjalizacji agenta)"""
+    """Zwięzła pomoc — bez przykładów."""
     print(f"""
 {Colors.CYAN}╔══════════════════════════════════════════════════════════════╗
-║                    AI CLI - POMOC                            ║
+║                  AI CLI v{__version__} - POMOC                       ║
 ╚══════════════════════════════════════════════════════════════╝{Colors.RESET}
 
 {Colors.CYAN}PODSTAWOWE UŻYCIE:{Colors.RESET}
   ai <polecenie>              Wykonaj polecenie w języku naturalnym
   ai                          Tryb interaktywny
-  ai init                     Zainicjalizuj projekt (utwórz .ai-context.json)
+  ai init                     Zainicjalizuj projekt w bieżącym katalogu
 
 {Colors.CYAN}POLECENIA SYSTEMOWE:{Colors.RESET}
-  ai panel [status|start|stop|open]
-                              Panel administracyjny (web)
-                              - status: sprawdź czy działa
-                              - start: uruchom panel (systemd)
-                              - stop: zatrzymaj panel
-                              - open: otwórz w przeglądarce
-                              URL: http://127.0.0.1:21650
-  
   ai model                    Zarządzaj modelami (czat/embeddingi/fallback/coder/vision)
   ai prompt                   Edytuj prompt systemowy (nano)
-  ai analyze                  Przeanalizuj projekt (co to jest)
+  ai analyze                  Przeanalizuj projekt
   ai review                   Przegląd projektu (co poprawić)
   ai audit                    Audit trail (dlaczego AI to zrobiło)
-  ai logs [...]               Zarządzaj logami diagnostycznymi
-                              Subkomendy: clean, rotate
-  
-  ai capability [...]         Zarządzaj dozwolonymi akcjami
-                              Subkomendy: list, enable, disable, reset
-  
-  ai web-search <zapytanie>   Szukaj w internecie ("Okno na świat")
-                              Subkomendy: enable, disable, status, scrape,
-                              cache, domains
-  ai --index                  Zaindeksuj / przebuduj bazę wiedzy (RAG)
-  ai knowledge [status|list]  Zarządzaj bazą wiedzy
-                              - status: stan bazy i pliki
-                              - list:   lista plików w knowledge/
-  
-  ai config                   Pokaż konfigurację
-  ai config edit              Edytuj konfigurację (nano)
   ai stats                    Statystyki projektu
-  ai history                  Historia poleceń
-  ai help / --help            Ta pomoc
+  ai history                  Historia poleceń projektu
+  ai export [plik.md]         Eksportuj sesję do pliku Markdown
+                              Flagi: --all (cała historia), --operations (tabela)
+  ai logs [clean|rotate]      Zarządzaj logami diagnostycznymi
+  ai capability [list|enable|disable|reset]
+                              Kontrola dozwolonych akcji per-projekt
+
+{Colors.CYAN}KONFIGURACJA:{Colors.RESET}
+  ai config                        Pokaż całą konfigurację
+  ai config get <klucz>            Pokaż jedną wartość
+  ai config set <klucz> <wartość>  Ustaw wartość (klucze przez kropkę)
+  ai config unset <klucz>          Usuń klucz
+  ai config list                   Płaska lista wszystkich kluczy
+  ai config edit                   Edytuj w nano
+
+{Colors.CYAN}WEB SEARCH:{Colors.RESET}
+  ai web-search <zapytanie>        Szukaj w internecie
+  ai web-search enable|disable     Włącz/wyłącz
+  ai web-search status             Status i zależności
+  ai web-search scrape <url>       Pobierz zawartość strony
+  ai web-search cache clear        Wyczyść cache
+  ai web-search domains add <dom>  Dodaj domenę do whitelist
+
+{Colors.CYAN}WIEDZA (RAG):{Colors.RESET}
+  ai --index                  Zaindeksuj / przebuduj bazę wiedzy
+  ai knowledge [status|list]  Zarządzaj bazą wiedzy
+
+{Colors.CYAN}HISTORIA ROZMÓW:{Colors.RESET}
+  ai config set conversation.save_history true    Włącz zapis historii (domyślnie)
+  ai config set conversation.save_history false   Wyłącz zapis historii
+  ai config set conversation.resume_prompt false  Wyłącz pytanie o wznowienie
+  ai config set conversation.max_saved_messages 40
+
+{Colors.CYAN}PANEL WEB:{Colors.RESET}
+  ai panel [status|start|stop|open|log|--help]
+                                       Panel administracyjny ({get_panel_url()})
 
 {Colors.CYAN}FLAGI:{Colors.RESET}
-  --plan                      Tylko plan, bez wykonywania
-  --dry-run                   Symulacja, bez zmian w plikach
-  --yes, -y                   Pomiń potwierdzenie (NIEBEZPIECZNE!)
-  --global, -g                Tryb globalny (bez projektu)
-  --quiet, -q                 Cichy tryb (bez output)
-  --verbose, -v               Gadliwy tryb (debug info)
-  --version                   Wyświetla aktualną wersję AI CLI Agent
+  --plan          Tylko plan, bez wykonywania
+  --dry-run       Symulacja, bez zmian w plikach
+  --yes, -y       Pomiń potwierdzenie (NIEBEZPIECZNE!)
+  --global, -g    Tryb globalny (bez projektu)
+  --quiet, -q     Cichy tryb
+  --verbose, -v   Tryb debug
+  --version       Wyświetl wersję
 
 {Colors.CYAN}BEZPIECZEŃSTWO:{Colors.RESET}
-  {Colors.RED}✗ DESTRUKCYJNE{Colors.RESET}  (delete, move, rm)           - ZAWSZE potwierdzenie
-  {Colors.YELLOW}▶ MEDIA{Colors.RESET}         (download_media, convert_media) - Potwierdzenie
-  {Colors.GREEN}✓ BEZPIECZNE{Colors.RESET}    (read, find, ls, curl, mkdir)   - Bez potwierdzenia
+  {Colors.RED}✗ DESTRUKCYJNE{Colors.RESET}  (delete, move, rm)              — ZAWSZE potwierdzenie
+  {Colors.YELLOW}▶ EXECUTE{Colors.RESET}       (run_command, download, convert) — Potwierdzenie
+  {Colors.GREEN}✓ BEZPIECZNE{Colors.RESET}    (read, find, ls, mkdir)          — Bez potwierdzenia
 
-{Colors.CYAN}CAPABILITIES (kontrola per-projekt):{Colors.RESET}
-  allow_execute               Wykonywanie komend systemowych
-  allow_delete                Usuwanie i przenoszenie plików
-  allow_git                   Operacje Git (future)
-  allow_network               Dostęp do sieci (future)
+{Colors.GRAY}Aby zobaczyć przykłady użycia wpisz:  ai --help-all{Colors.RESET}
+    """)
 
-{Colors.CYAN}PRZYKŁADY UŻYCIA:{Colors.RESET}
 
-  {Colors.GRAY}# Inicjalizacja projektu{Colors.RESET}
-  cd ~/Projekty/moj-app
-  ai init                     # zainicjalizuj projekt w tym katalogu
+def show_help_all():
+    """Pełna pomoc z przykładami."""
+    show_help()
+    print(f"""{Colors.CYAN}PRZYKŁADY UŻYCIA:{Colors.RESET}
 
-  {Colors.GRAY}# Analiza projektu{Colors.RESET}
-  ai prompt                   # ustaw personalizację AI
-  ai co robi ten projekt      # szybka analiza
-  ai review                   # głęboki przegląd
+  {Colors.GRAY}# Projekt{Colors.RESET}
+  cd ~/Projekty/moj-app && ai init
+  ai co robi ten projekt
+  ai review
 
-  {Colors.GRAY}# Eksploracja plików{Colors.RESET}
+  {Colors.GRAY}# Pliki{Colors.RESET}
   ai jakie tu są pliki mp4
-  ai jakie mam pliki w /media/dysk
   ai znajdź wszystkie pliki py w podfolderach
+  ai pokaż 5 największych plików
 
-  {Colors.GRAY}# Tworzenie plików{Colors.RESET}
+  {Colors.GRAY}# Tworzenie i edycja{Colors.RESET}
   ai stwórz prostą stronę HTML
-  ai zrób landing page o kotach
   ai stwórz TODO app w React
-
-  {Colors.GRAY}# Edycja{Colors.RESET}
   ai napraw błędy w app.py
   ai dodaj komentarze do funkcji
   ai zamiast Punkty użyj Kulki
 
-  {Colors.GRAY}# Media (YouTube, audio, wideo){Colors.RESET}
+  {Colors.GRAY}# Media{Colors.RESET}
   ai pobierz https://youtube.com/...
   ai pobierz i przekonwertuj na mp3 https://...
   ai przekonwertuj video.mp4 na mp3
-
-  {Colors.GRAY}# Obrazy (konwersja, kompresja, favicon){Colors.RESET}
   ai stwórz favicon z logo.png
   ai przekonwertuj wszystkie PNG na WebP
   ai skompresuj zdjęcia w folderze
-  ai zmień rozmiar obrazka na 800px szerokości
-  ai pokaż info o photo.jpg
 
   {Colors.GRAY}# Schowek{Colors.RESET}
   ai wyjaśnij kod ze schowka
   ai napraw błąd ze schowka
   ai skopiuj wynik do schowka
 
-  {Colors.GRAY}# Wykonywanie (bezpieczne komendy bez confirm){Colors.RESET}
-  ai znajdź pliki większe niż 1MB
-  ai pokaż 5 największych plików py
-  ai ile linii ma każdy plik
+  {Colors.GRAY}# Web Search{Colors.RESET}
+  ai web-search enable
+  ai jaka jest najnowsza wersja pandas
+  ai web-search scrape https://pypi.org/project/pandas/
+
+  {Colors.GRAY}# Konfiguracja (klucze przez kropkę){Colors.RESET}
+  ai config set nick Paffcio
+  ai config set execution.timeout_seconds 60
+  ai config set web_search.enabled true
+  ai config set conversation.save_history false
+  ai config unset web_search.brave_api_key
+  ai config get execution.command_output_limit
+  ai config list
 
   {Colors.GRAY}# Diagnostyka{Colors.RESET}
-  ai logs                     # podsumowanie logów
-  ai logs clean               # usuń stare logi (>30 dni)
-  ai logs rotate              # rotacja dużych logów
-
-  {Colors.GRAY}# Web Search ("Okno na świat"){Colors.RESET}
-  ai web-search enable                    # włącz web search
-  ai web-search status                    # sprawdź status i zależności
-  ai web-search najnowsza wersja pandas   # szukaj bezpośrednio
-  ai web-search scrape https://pypi.org/project/pandas/
-  ai web-search cache clear               # wyczyść cache
-  ai web-search domains add example.com  # dodaj domenę do whitelist
-  {Colors.GRAY}# Auto-trigger (gdy web_search.enabled=true){Colors.RESET}
-  ai jaka jest najnowsza wersja pandas   # wykryje trigger phrase → szuka
+  ai logs
+  ai logs clean
+  ai audit
 
   {Colors.CYAN}Wersja: {__version__}{Colors.RESET}
     """)
 
+
 def main():
     # Obsługa --help i --version przed inicjalizacją agenta
+    if "--help-all" in sys.argv or "--examples" in sys.argv:
+        show_help_all()
+        return
+
+    # Jeśli to 'ai panel --help' - przekaż do cmd_panel, nie globalny help
+    _raw = sys.argv[1:]
+    if len(_raw) >= 2 and _raw[0] == "panel" and _raw[1] in ("--help", "-h", "help"):
+        config = load_config()
+        ui = UI(quiet=False, verbose=False, config=config)
+        cmd_panel(ui, _raw)
+        return
+
     if "--help" in sys.argv or "-h" in sys.argv:
         show_help()
         return
@@ -307,6 +359,7 @@ def main():
         "--yes", "-y",
         "--global", "-g",
         "--help", "-h",
+        "--help-all", "--examples",
         "--version", "-V",
         "--index",
         "--reindex",
@@ -353,6 +406,11 @@ def main():
             cmd_web_search(None, ui, config, args)
             return
 
+    # deps nie potrzebuje agenta
+    if args and args[0] == "deps":
+        cmd_deps(ui, config)
+        return
+
     # memory nie potrzebuje agenta
     if args and args[0] == "memory":
         cmd_memory(ui, args[1:])
@@ -384,6 +442,68 @@ def main():
     # Przekaż logger do OllamaClient
     if agent.logger:
         client.logger = agent.logger
+
+    # =========================================================
+    # WZNOWIENIE ROZMOWY
+    # =========================================================
+    _resume_cfg = config.get("conversation", {})
+    _save_history = _resume_cfg.get("save_history", True)
+    _resume_prompt = _resume_cfg.get("resume_prompt", True)
+    _is_system_cmd = bool(args and args[0] in {
+        "logs", "stats", "history", "analyze", "review",
+        "audit", "capability", "web-search", "memory", "knowledge", "kb"
+    })
+
+    if (
+        _save_history
+        and _resume_prompt
+        and not _is_system_cmd
+        and not global_mode
+        and agent.conv_history is not None
+        and agent.conv_history.exists()
+    ):
+        _last_ts = agent.conv_history.last_timestamp()
+        _preview = agent.conv_history.last_exchange_preview()
+        print()
+        if ui.use_rich and ui._console:
+            from rich.panel import Panel
+            from rich.text import Text as RichText
+            _info = RichText()
+            _info.append("Znaleziono historię rozmowy", style="bold bright_cyan")
+            if _last_ts:
+                _info.append(f"  ({_last_ts})", style="bright_black")
+            if _preview:
+                _info.append(f'\nOstatnie: "{_preview}"', style="bright_black")
+            _info.append("\n\nCzy wznowić poprzednią rozmowę?  ", style="bright_white")
+            _info.append("[T/n]", style="bright_yellow")
+            ui._console.print(Panel(_info, border_style="bright_cyan", padding=(0, 1)))
+        else:
+            ts_str = f" ({_last_ts})" if _last_ts else ""
+            print(f"\033[96m► Znaleziono historię rozmowy{ts_str}\033[0m")
+            if _preview:
+                print(f'  Ostatnie: "{_preview}"')
+            print("\033[93mCzy wznowić poprzednią rozmowę? [T/n]\033[0m ", end="", flush=True)
+
+        try:
+            _answer = input().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            _answer = "t"
+
+        if _answer in ("", "t", "tak", "y", "yes"):
+            _hist_msgs = agent.conv_history.to_conversation_messages()
+            for _m in _hist_msgs:
+                if _m["role"] == "user":
+                    agent.conversation.add_user_message(_m["content"])
+                elif _m["role"] == "assistant":
+                    agent.conversation.add_ai_message(_m["content"])
+            if not quiet:
+                ui.success(f"Wczytano {len(_hist_msgs)} wiadomości z historii")
+        else:
+            agent.conv_history.clear()
+            if not quiet:
+                ui.status("Historia wyczyszczona — nowa sesja")
+        print()
+
     
     if args and args[0] == "logs":
         cmd_logs(agent, ui, args)
@@ -413,6 +533,10 @@ def main():
         cmd_capability(agent, ui, args)
         return
 
+    if args and args[0] == "export":
+        cmd_export(agent, ui, args)
+        return
+
     if args and args[0] == "web-search":
         cmd_web_search(agent, ui, config, args)
         return
@@ -424,7 +548,15 @@ def main():
     # === TRYB INTERAKTYWNY ===
 
     if not args:
-        # ── nagłówek powitalny ──────────────────────────────────
+        # ── Textual TUI (domyślny tryb interaktywny) ────────────
+        try:
+            from ui_layer.tui_app import run_tui
+            run_tui(agent, config)
+            return
+        except ImportError:
+            pass  # brak textual – fallback do terminala
+
+        # ── nagłówek powitalny (fallback) ───────────────────────
         if ui.use_rich and ui._console:
             from rich.panel import Panel
             from rich.text import Text
@@ -504,7 +636,7 @@ def main():
                     _known_subcmds = {
                         "logs", "stats", "history", "analyze", "review",
                         "audit", "capability", "web-search", "memory",
-                        "knowledge", "kb", "help",
+                        "knowledge", "kb", "export", "help",
                     }
                     if _subcmd_args and _subcmd_args[0].lower() in _known_subcmds:
                         _sub = _subcmd_args[0].lower()
@@ -528,6 +660,8 @@ def main():
                             cmd_memory(ui, _subcmd_args[1:])
                         elif _sub in ("knowledge", "kb"):
                             cmd_knowledge(ui, config, ["ai"] + _subcmd_args, do_index=False)
+                        elif _sub == "export":
+                            cmd_export(agent, ui, _subcmd_args)
                         elif _sub == "help":
                             show_help()
                         else:

@@ -1,7 +1,28 @@
-requests
-Pillow
-pyperclip
-beautifulsoup4
-html2text
-rich
-prompt_toolkit
+# AI CLI Agent — zależności Python
+# Instalowane automatycznie przez install-cli.sh w venv
+
+# ── Sieć i HTTP ───────────────────────────────────────────────────────────────
+requests>=2.28.0
+
+# ── Interfejs terminalowy ─────────────────────────────────────────────────────
+rich>=13.0.0
+textual>=0.52.0
+prompt_toolkit>=3.0.0
+
+# ── Obrazy ────────────────────────────────────────────────────────────────────
+Pillow>=10.0.0
+
+# ── Schowek ───────────────────────────────────────────────────────────────────
+pyperclip>=1.8.0
+
+# ── Web search / scraping ─────────────────────────────────────────────────────
+beautifulsoup4>=4.12.0
+html2text>=2020.1.16
+
+# ── RAG / embeddingi ─────────────────────────────────────────────────────────
+numpy>=1.24.0
+
+# ── Narzędzia systemowe (instalowane przez apt/system, NIE przez pip) ─────────
+# yt-dlp    → sudo apt install yt-dlp  lub  pip install yt-dlp
+# ffmpeg    → sudo apt install ffmpeg
+# ollama    → curl https://ollama.ai/install.sh | sh

@@ -1,50 +1,44 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --color-bg: #0f0f0f;
-  --color-surface: #1a1a1a;
-  --color-text: #e8e8e8;
-  --color-accent: #7c6af7;
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --bg: #f8f9fa;
+  --text: #212529;
+  --primary: #4361ee;
+  --surface: #ffffff;
+  --border: #dee2e6;
   --radius: 8px;
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-sans);
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
 header {
-  padding: 2rem;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--primary);
+  color: white;
+  padding: 1rem 2rem;
 }
 
-header h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-accent);
-}
+header h1 { font-size: 1.5rem; }
 
 main {
   flex: 1;
-  padding: 2rem;
   max-width: 960px;
-  margin: 0 auto;
   width: 100%;
+  margin: 2rem auto;
+  padding: 0 1rem;
 }
 
 footer {
-  padding: 1.5rem 2rem;
   text-align: center;
-  font-size: 0.85rem;
-  color: #666;
-  border-top: 1px solid #2a2a2a;
+  padding: 1rem;
+  font-size: .85rem;
+  color: #6c757d;
+  border-top: 1px solid var(--border);
 }

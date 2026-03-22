@@ -6,11 +6,26 @@ Wydzielone z main.py dla czytelności.
 
 import sys
 import json
+import socket
 import subprocess
 import webbrowser
 from pathlib import Path
 from ui_layer.ui import UI, Colors
 from core.config import CONFIG_FILE, save_config
+
+PANEL_PORT = 21650
+
+
+def get_panel_url() -> str:
+    """Zwraca URL panelu z lokalnym IP zamiast 127.0.0.1."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        ip = "127.0.0.1"
+    return f"http://{ip}:{PANEL_PORT}"
 
 
 def cmd_prompt(config):
@@ -98,12 +113,37 @@ def cmd_logs(agent, ui, args):
 
 
 def cmd_panel(ui, args):
-    """ai panel [status|start|stop|open] - panel webowy"""
+    """ai panel [status|start|stop|open|log|--help] - panel webowy"""
     sub = args[1] if len(args) > 1 else "status"
-    
+
     SERVICE_NAME = "ai-panel.service"
     SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
     SERVICE_FILE = SYSTEMD_USER_DIR / SERVICE_NAME
+
+    if sub in ("--help", "-h", "help"):
+        lines = [
+            "",
+            f"  {Colors.CYAN}ai panel{Colors.RESET} – zarządzanie web panelem AI CLI (port 21650)",
+            "",
+            f"  {Colors.BOLD}Komendy:{Colors.RESET}",
+            f"    {Colors.GREEN}status{Colors.RESET}   Pokaż stan serwisu systemd (domyślna)",
+            f"    {Colors.GREEN}start{Colors.RESET}    Uruchom panel",
+            f"    {Colors.GREEN}stop{Colors.RESET}     Zatrzymaj panel",
+            f"    {Colors.GREEN}open{Colors.RESET}     Otwórz panel w przeglądarce",
+            f"    {Colors.GREEN}log{Colors.RESET}      Pokaż ostatnie logi panelu",
+            f"    {Colors.GREEN}--help{Colors.RESET}   Ta pomoc",
+            "",
+            f"  {Colors.BOLD}Przykłady:{Colors.RESET}",
+            f"    ai panel             # sprawdź status",
+            f"    ai panel start       # uruchom",
+            f"    ai panel log         # ostatnie 30 linii logów",
+            f"    ai panel log 50      # ostatnie 50 linii logów",
+            "",
+            f"  {Colors.BOLD}URL:{Colors.RESET}  {get_panel_url()}",
+            "",
+        ]
+        print("\n".join(lines))
+        return
 
     if sub == "status":
         if not SERVICE_FILE.exists():
@@ -116,16 +156,14 @@ def cmd_panel(ui, args):
             ui.verbose("Aby zainstalować service:")
             ui.verbose("  Uruchom ponownie instalator: ~/.local/share/ai-cli-agent/install-cli.sh")
             return
-        
+
         try:
-            # POPRAWKA: Obsługa CTRL+C
             subprocess.run(
                 ["systemctl", "--user", "status", SERVICE_NAME],
-                check=False  # Nie rzucaj wyjątku przy non-zero exit
+                check=False
             )
         except KeyboardInterrupt:
-            # Czysta obsługa CTRL+C - bez stacktrace
-            print()  # Nowa linia po ^C
+            print()
             return
         except FileNotFoundError:
             ui.error("systemctl nie jest dostępne")
@@ -137,17 +175,17 @@ def cmd_panel(ui, args):
             ui.verbose("Uruchom panel ręcznie:")
             ui.verbose("  python3 ~/.local/share/ai-cli-agent/web/server.py")
             return
-        
+
         try:
             result = subprocess.run(
                 ["systemctl", "--user", "start", SERVICE_NAME],
                 capture_output=True,
                 text=True
             )
-            
+
             if result.returncode == 0:
                 ui.success("✓ Panel uruchomiony")
-                ui.verbose("URL: http://127.0.0.1:21650")
+                ui.verbose(f"URL: {get_panel_url()}")
             else:
                 ui.error(f"Nie udało się uruchomić: {result.stderr}")
         except FileNotFoundError:
@@ -158,14 +196,14 @@ def cmd_panel(ui, args):
         if not SERVICE_FILE.exists():
             ui.warning("Systemd service nie jest zainstalowany")
             return
-        
+
         try:
             result = subprocess.run(
                 ["systemctl", "--user", "stop", SERVICE_NAME],
                 capture_output=True,
                 text=True
             )
-            
+
             if result.returncode == 0:
                 ui.success("✓ Panel zatrzymany")
             else:
@@ -175,11 +213,88 @@ def cmd_panel(ui, args):
         return
 
     if sub == "open":
-        webbrowser.open("http://127.0.0.1:21650")
+        webbrowser.open(get_panel_url())
         ui.success("✓ Otwarto panel w przeglądarce")
         return
 
-    ui.error("Użycie: ai panel [status|start|stop|open]")
+    if sub == "log":
+        _cmd_panel_log(ui, args)
+        return
+
+    ui.error(f"Nieznana subkomenda: {sub}")
+    ui.verbose("Użycie: ai panel [status|start|stop|open|log|--help]")
+
+
+def _cmd_panel_log(ui, args):
+    """Wyświetla logi panelu - z fallbackiem dla systemów bez journalctl."""
+    # Opcjonalna liczba linii jako drugi argument, np. ai panel log 50
+    try:
+        n = int(args[2]) if len(args) > 2 else 30
+        n = max(1, min(n, 1000))
+    except (ValueError, IndexError):
+        n = 30
+
+    SERVICE_NAME = "ai-panel.service"
+
+    # Strategia 1: journalctl (systemd, Linux)
+    if _has_cmd("journalctl"):
+        try:
+            subprocess.run(
+                ["journalctl", "--user", "-u", SERVICE_NAME,
+                 "-n", str(n), "--no-pager"],
+                check=False
+            )
+            return
+        except (FileNotFoundError, KeyboardInterrupt):
+            pass
+
+    # Strategia 2: plik web.log z web panelu (~/.config/ai/web/logs/web.log)
+    web_log = Path.home() / ".config" / "ai" / "web" / "logs" / "web.log"
+    if web_log.exists():
+        ui.verbose(f"journalctl niedostępny – czytam {web_log}")
+        try:
+            lines = web_log.read_text(encoding="utf-8", errors="replace").splitlines()
+            for line in lines[-n:]:
+                print(line)
+            return
+        except Exception as e:
+            ui.error(f"Błąd odczytu web.log: {e}")
+
+    # Strategia 3: systemd journal bezpośrednio przez plik (macOS/brak journalctl)
+    journal_paths = [
+        Path("/var/log/syslog"),          # Ubuntu/Debian bez journald
+        Path("/var/log/messages"),        # RHEL/CentOS/openSUSE
+        Path("/var/log/system.log"),      # macOS
+        Path.home() / ".local" / "share" / "systemd" / "coredump",
+    ]
+    for log_path in journal_paths:
+        if log_path.exists() and log_path.is_file():
+            ui.verbose(f"journalctl niedostępny – szukam wpisów w {log_path}")
+            try:
+                lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                # Filtruj tylko linie zawierające nazwę serwisu
+                relevant = [l for l in lines if "ai-panel" in l or "ai_panel" in l or "server.py" in l]
+                if relevant:
+                    for line in relevant[-n:]:
+                        print(line)
+                    return
+            except PermissionError:
+                pass  # Brak dostępu - próbuj dalej
+
+    # Nic nie znaleziono
+    ui.warning("Brak logów – journalctl niedostępny i nie znaleziono pliku web.log")
+    ui.verbose("")
+    ui.verbose("Logi web panelu będą dostępne po restarcie serwisu w:")
+    ui.verbose(f"  {web_log}")
+    ui.verbose("")
+    ui.verbose("Możesz też uruchomić panel ręcznie żeby zobaczyć output:")
+    ui.verbose("  python3 ~/.local/share/ai-cli-agent/web/server.py")
+
+
+def _has_cmd(name: str) -> bool:
+    """Sprawdza czy komenda jest dostępna w PATH."""
+    import shutil as _shutil
+    return _shutil.which(name) is not None
 
 
 def cmd_init(ui, config):
@@ -230,12 +345,165 @@ def cmd_init(ui, config):
     ui.verbose("  ai capability list  # sprawdź dozwolone akcje")
 
 
+def _config_get_nested(cfg: dict, key_path: str):
+    """Pobierz wartość z zagnieżdżonego klucza, np. 'execution.timeout_seconds'"""
+    parts = key_path.split(".")
+    node = cfg
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            return None, False
+        node = node[part]
+    return node, True
+
+
+def _config_set_nested(cfg: dict, key_path: str, value) -> bool:
+    """Ustaw wartość w zagnieżdżonym kluczu. Tworzy pośrednie słowniki."""
+    parts = key_path.split(".")
+    node = cfg
+    for part in parts[:-1]:
+        if part not in node or not isinstance(node[part], dict):
+            node[part] = {}
+        node = node[part]
+    node[parts[-1]] = value
+    return True
+
+
+def _config_unset_nested(cfg: dict, key_path: str) -> bool:
+    """Usuń klucz z zagnieżdżonego słownika. Zwraca True jeśli usunięto."""
+    parts = key_path.split(".")
+    node = cfg
+    for part in parts[:-1]:
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    if parts[-1] in node:
+        del node[parts[-1]]
+        return True
+    return False
+
+
+def _parse_config_value(raw: str):
+    """Próbuje zamienić string na właściwy typ Pythona."""
+    if raw.lower() == "true":  return True
+    if raw.lower() == "false": return False
+    if raw.lower() in ("null", "none"): return None
+    try: return int(raw)
+    except ValueError: pass
+    try: return float(raw)
+    except ValueError: pass
+    # Tablica JSON: ["a","b"]
+    if raw.startswith("["):
+        import json as _j
+        try: return _j.loads(raw)
+        except Exception: pass
+    return raw  # zostaw jako string
+
+
+def _config_list_keys(cfg: dict, prefix: str = "") -> list:
+    """Zwróć płaską listę wszystkich kluczy w formacie 'a.b.c'."""
+    keys = []
+    for k, v in cfg.items():
+        full = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            keys.extend(_config_list_keys(v, full))
+        else:
+            keys.append((full, v))
+    return keys
+
+
 def cmd_config(ui, config, args):
-    """ai config [edit] - konfiguracja"""
-    if len(args) > 1 and args[1] == "edit":
+    """
+    ai config                        — pokaż całą konfigurację
+    ai config get <klucz>            — pokaż jedną wartość
+    ai config set <klucz> <wartość>  — ustaw wartość (tworzy zagnieżdżone klucze)
+    ai config unset <klucz>          — usuń klucz
+    ai config list                   — płaska lista wszystkich kluczy i wartości
+    ai config edit                   — otwórz w nano (jak poprzednio)
+
+    Klucze zagnieżdżone: execution.timeout_seconds, web_search.enabled itp.
+    Typy: true/false, liczby, null, ["tablica","json"] — auto-konwersja.
+
+    Przykłady:
+      ai config set nick Paffcio
+      ai config set execution.timeout_seconds 60
+      ai config set web_search.enabled true
+      ai config set execution.command_output_limit 8000
+      ai config unset web_search.brave_api_key
+      ai config get execution.timeout_seconds
+    """
+    sub = args[1] if len(args) > 1 else None
+
+    # --- SHOW (domyślne) ---
+    if sub is None:
+        print(json.dumps(config, indent=2, ensure_ascii=False))
+        return
+
+    # --- EDIT ---
+    if sub == "edit":
         subprocess.run(["nano", str(CONFIG_FILE)])
-    else:
-        print(json.dumps(config, indent=2))
+        return
+
+    # --- LIST ---
+    if sub == "list":
+        pairs = _config_list_keys(config)
+        width = max((len(k) for k, _ in pairs), default=0)
+        for k, v in pairs:
+            ui.success(f"{k:<{width}}  =  {json.dumps(v, ensure_ascii=False)}")
+        return
+
+    # --- GET ---
+    if sub == "get":
+        if len(args) < 3:
+            ui.error("Użycie: ai config get <klucz>")
+            ui.verbose("Przykład: ai config get execution.timeout_seconds")
+            return
+        key = args[2]
+        val, found = _config_get_nested(config, key)
+        if not found:
+            ui.error(f"Klucz '{key}' nie istnieje w konfiguracji")
+            return
+        print(json.dumps(val, indent=2, ensure_ascii=False))
+        return
+
+    # --- SET ---
+    if sub == "set":
+        if len(args) < 4:
+            ui.error("Użycie: ai config set <klucz> <wartość>")
+            ui.verbose("Przykłady:")
+            ui.verbose("  ai config set nick Paffcio")
+            ui.verbose("  ai config set execution.timeout_seconds 60")
+            ui.verbose("  ai config set web_search.enabled true")
+            return
+        key   = args[2]
+        value = _parse_config_value(args[3])
+        old_val, existed = _config_get_nested(config, key)
+        _config_set_nested(config, key, value)
+        save_config(config)
+        if existed:
+            ui.success(f"Zaktualizowano: {key}")
+            ui.verbose(f"  {json.dumps(old_val, ensure_ascii=False)}  →  {json.dumps(value, ensure_ascii=False)}")
+        else:
+            ui.success(f"Dodano: {key} = {json.dumps(value, ensure_ascii=False)}")
+        return
+
+    # --- UNSET ---
+    if sub == "unset":
+        if len(args) < 3:
+            ui.error("Użycie: ai config unset <klucz>")
+            return
+        key = args[2]
+        removed = _config_unset_nested(config, key)
+        if removed:
+            save_config(config)
+            ui.success(f"Usunięto klucz: {key}")
+        else:
+            ui.error(f"Klucz '{key}' nie istnieje — nic nie zmieniono")
+        return
+
+    # --- NIEZNANA KOMENDA ---
+    ui.error(f"Nieznana subkomenda: '{sub}'")
+    ui.verbose("Dostępne: get, set, unset, list, edit")
+    ui.verbose("Lub samo 'ai config' żeby zobaczyć całą konfigurację")
 
 
 def cmd_model(config):
@@ -925,3 +1193,170 @@ def cmd_knowledge(ui, config: dict, args: list, do_index: bool = False):
     print(f"  {Colors.CYAN}ai knowledge status{Colors.RESET}  — stan bazy wiedzy")
     print(f"  {Colors.CYAN}ai knowledge list{Colors.RESET}    — lista plików")
     print(f"  {Colors.CYAN}ai --index{Colors.RESET}           — zaindeksuj bazę")
+
+
+def cmd_export(agent, ui, args):
+    """
+    ai export [opcje] — eksportuj historię sesji do pliku Markdown
+
+    ai export                    eksportuj bieżącą sesję do ai-session-YYYY-MM-DD.md
+    ai export <plik.md>          eksportuj do podanego pliku
+    ai export --all              eksportuj całe .ai-logs/session.log
+    ai export --operations       eksportuj operations.jsonl jako tabelę
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+
+    if agent.project_root is None:
+        log_dir = Path.home() / ".cache" / "ai-cli" / "logs"
+    else:
+        log_dir = agent.project_root / ".ai-logs"
+
+    # Ustal plik docelowy
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    out_file = None
+    export_all = "--all" in args
+    export_ops = "--operations" in args
+
+    for a in args[1:]:
+        if not a.startswith("--"):
+            out_file = Path(a)
+            break
+
+    if out_file is None:
+        out_file = Path.cwd() / f"ai-session-{date_str}.md"
+
+    lines = []
+    lines.append(f"# Sesja AI CLI — {date_str}\n")
+
+    # --- session.log ---
+    session_log = log_dir / "session.log"
+    if session_log.exists():
+        lines.append("## Historia rozmów\n")
+        raw = session_log.read_text(encoding="utf-8", errors="replace")
+        if not export_all:
+            # Tylko dzisiejsze wpisy
+            today = date_str
+            raw_lines = [l for l in raw.splitlines() if l.startswith(f"[{today}")]
+        else:
+            raw_lines = raw.splitlines()
+
+        if not raw_lines:
+            lines.append("_Brak wpisów z dzisiaj. Użyj `--all` aby zobaczyć całą historię._\n")
+        else:
+            for l in raw_lines:
+                if "USER:" in l:
+                    msg = l.split("USER:", 1)[-1].strip().strip("'")
+                    lines.append(f"**User:** {msg}\n")
+                elif "AI:" in l:
+                    msg = l.split("AI:", 1)[-1].strip()
+                    lines.append(f"**AI:** {msg}\n")
+                elif "ACTIONS:" in l:
+                    msg = l.split("ACTIONS:", 1)[-1].strip()
+                    lines.append(f"> `{msg}`\n")
+    else:
+        lines.append("_Brak pliku session.log_\n")
+
+    # --- operations.jsonl (opcjonalnie) ---
+    if export_ops:
+        ops_file = log_dir / "operations.jsonl"
+        if ops_file.exists():
+            lines.append("\n## Operacje\n")
+            lines.append("| Czas | Polecenie | Akcji | Sukces |\n")
+            lines.append("|------|-----------|-------|--------|\n")
+            with open(ops_file, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        op = json.loads(line)
+                        ts = op.get("timestamp", "")[:16]
+                        cmd = op.get("command", "")[:60].replace("|", "\\|")
+                        cnt = op.get("actions_count", 0)
+                        ok = "✓" if op.get("overall_success") else "✗"
+                        lines.append(f"| {ts} | {cmd} | {cnt} | {ok} |\n")
+                    except Exception:
+                        pass
+
+    # Zapisz
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text("\n".join(lines), encoding="utf-8")
+    ui.success(f"Eksport zapisany: {out_file}")
+    ui.verbose(f"  Wiersze: {len(lines)}")
+
+
+def cmd_deps(ui, config):
+    """
+    ai deps — sprawdź stan zależności Python w venv agenta.
+    """
+    import sys
+    import importlib.util
+    import re
+    from pathlib import Path
+
+    install_dir = Path.home() / ".local" / "share" / "ai-cli-agent"
+    venv_python = install_dir / "venv" / "bin" / "python3"
+    req_file    = install_dir / "requirements.txt"
+
+    ui.section("Zależności Python")
+
+    current_python = sys.executable
+    using_venv = "venv" in current_python
+    if using_venv:
+        ui.success(f"Python: {current_python}  (venv ✓)")
+    else:
+        ui.warning(f"Python: {current_python}  (systemowy — nie venv)")
+        ui.verbose(f"Oczekiwany venv: {venv_python}")
+
+    if not req_file.exists():
+        ui.error(f"Brak pliku requirements.txt w {install_dir}")
+        return
+
+    packages = []
+    with open(req_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = re.match(r'^([A-Za-z0-9_\-]+)', line)
+            if m:
+                packages.append((m.group(1), line))
+
+    print()
+    ok = 0
+    missing = []
+    for pkg_name, req_line in packages:
+        import_aliases = {
+            "pillow":        "PIL",
+            "beautifulsoup4":"bs4",
+        }
+        import_name = import_aliases.get(pkg_name.lower(),
+                        pkg_name.replace("-", "_").lower())
+
+        spec = importlib.util.find_spec(import_name)
+        if spec is not None:
+            try:
+                import importlib.metadata
+                ver = importlib.metadata.version(pkg_name)
+                ui.success(f"  ✓  {pkg_name:<22} {ver}")
+            except Exception:
+                ui.success(f"  ✓  {pkg_name}")
+            ok += 1
+        else:
+            ui.error(f"  ✕  {pkg_name:<22} BRAK  ({req_line})")
+            missing.append(pkg_name)
+
+    print()
+    ui.success(f"Zainstalowane: {ok}/{len(packages)}")
+
+    if missing:
+        print()
+        ui.warning(f"Brakujące: {', '.join(missing)}")
+        print()
+        if using_venv:
+            ui.verbose(f"Napraw:  {venv_python} -m pip install {' '.join(missing)}")
+        else:
+            ui.verbose(f"Napraw:  {venv_python} -m pip install {' '.join(missing)}")
+            ui.verbose(f"System:  pip install {' '.join(missing)} --break-system-packages")

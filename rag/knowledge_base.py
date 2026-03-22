@@ -299,14 +299,16 @@ class KnowledgeBase:
 
     # ── Wyszukiwanie ──────────────────────────────────────────────────────────
 
-    def search(self, query: str, top_k: int = 4, min_score: float = 0.1) -> list[SearchResult]:
+    def search(self, query: str, top_k: int = 4, min_score: float = 0.1,
+               max_per_file: int = 2) -> list[SearchResult]:
         """
         Wyszukaj najlepiej pasujące fragmenty wiedzy.
 
         Args:
-            query:     zapytanie użytkownika
-            top_k:     ile fragmentów zwrócić
-            min_score: minimalne podobieństwo (0.0–1.0)
+            query:        zapytanie użytkownika
+            top_k:        ile fragmentów zwrócić łącznie
+            min_score:    minimalne podobieństwo (0.0–1.0)
+            max_per_file: maks. fragmentów z jednego pliku (zapobiega dominacji jednego pliku)
         """
         if not self.is_ready:
             return []
@@ -316,8 +318,22 @@ class KnowledgeBase:
         except Exception:
             return []
 
-        results = self.db.search(qv, top_k=top_k)
-        return [r for r in results if r.score >= min_score]
+        # Pobierz więcej kandydatów żeby po deduplikacji zostało top_k
+        candidates = self.db.search(qv, top_k=top_k * 4)
+        filtered = [r for r in candidates if r.score >= min_score]
+
+        # Deduplikacja: maks. max_per_file fragmentów z tego samego pliku
+        file_counts: dict[str, int] = {}
+        results = []
+        for r in filtered:
+            count = file_counts.get(r.file_path, 0)
+            if count < max_per_file:
+                results.append(r)
+                file_counts[r.file_path] = count + 1
+            if len(results) >= top_k:
+                break
+
+        return results
 
     # ── Formatowanie kontekstu dla promptu ───────────────────────────────────
 

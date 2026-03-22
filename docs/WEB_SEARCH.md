@@ -5,8 +5,8 @@ Moduł dający agentowi dostęp do internetu. Domyślnie **WYŁĄCZONY** ze wzgl
 ## Szybki start
 
 ```bash
-ai web-search enable          # Włącz
-ai web-search status          # Sprawdź status i zależności
+ai web-search enable # Włącz
+ai web-search status # Sprawdź status i zależności
 
 # Po włączeniu - auto-trigger:
 ai jaka jest pogoda w Gdańsku
@@ -25,14 +25,14 @@ ai web-search scrape https://pypi.org/project/pandas/
 
 ```
 WebSearchEngine
-  ├── SearchCache (TTL 1h, ~/.cache/ai/web-search/)
-  ├── RateLimiter (10 zapytań/minutę, rolling window)
-  ├── DuckDuckGoBackend (bezpłatny, bez klucza)
-  ├── BraveSearchBackend (wymaga API key)
-  └── WebScraper
-        ├── requests + BeautifulSoup
-        ├── html2text (HTML → Markdown)
-        └── Filtrowanie: ads, nav, footer
+ ├── SearchCache (TTL 1h, ~/.cache/ai/web-search/)
+ ├── RateLimiter (10 zapytań/minutę, rolling window)
+ ├── DuckDuckGoBackend (bezpłatny, bez klucza)
+ ├── BraveSearchBackend (wymaga API key)
+ └── WebScraper
+ ├── requests + BeautifulSoup
+ ├── html2text (HTML → Markdown)
+ └── Filtrowanie: ads, nav, footer
 ```
 
 ## Silniki wyszukiwania
@@ -47,10 +47,10 @@ Wymaga klucza API. Lepsze wyniki, większe limity.
 
 ```json
 {
-  "web_search": {
-    "engine": "brave",
-    "brave_api_key": "BSA..."
-  }
+ "web_search": {
+ "engine": "brave",
+ "brave_api_key": "BSA..."
+ }
 }
 ```
 
@@ -60,11 +60,11 @@ Wymaga klucza API + Custom Search Engine ID.
 
 ```json
 {
-  "web_search": {
-    "engine": "google",
-    "google_api_key": "AIza...",
-    "google_cx": "..."
-  }
+ "web_search": {
+ "engine": "google",
+ "google_api_key": "AIza...",
+ "google_cx": "..."
+ }
 }
 ```
 
@@ -115,17 +115,17 @@ Max 10 zapytań/minutę (rolling window). Po przekroczeniu: `RateLimitError` z c
 
 ```json
 {
-  "web_search": {
-    "enabled": false,
-    "engine": "duckduckgo",
-    "max_results": 5,
-    "cache_ttl_hours": 1,
-    "allowed_domains": ["pypi.org", "github.com", "..."],
-    "auto_trigger": true,
-    "brave_api_key": "",
-    "google_api_key": "",
-    "google_cx": ""
-  }
+ "web_search": {
+ "enabled": false,
+ "engine": "duckduckgo",
+ "max_results": 5,
+ "cache_ttl_hours": 1,
+ "allowed_domains": ["pypi.org", "github.com", "..."],
+ "auto_trigger": true,
+ "brave_api_key": "",
+ "google_api_key": "",
+ "google_cx": ""
+ }
 }
 ```
 
@@ -134,8 +134,8 @@ Max 10 zapytań/minutę (rolling window). Po przekroczeniu: `RateLimitError` z c
 Wyniki cache'owane w `~/.cache/ai/web-search/` (JSON files, hash klucza = query).
 
 ```bash
-ai web-search cache clear    # Wyczyść cache
-ai web-search cache status   # Rozmiar cache
+ai web-search cache clear # Wyczyść cache
+ai web-search cache status # Rozmiar cache
 ```
 
 ## Struktura wyników
@@ -143,11 +143,11 @@ ai web-search cache status   # Rozmiar cache
 ```python
 @dataclass
 class WebSearchResult:
-    title: str
-    url: str
-    snippet: str
-    date: Optional[str]
-    domain: str
+ title: str
+ url: str
+ snippet: str
+ date: Optional[str]
+ domain: str
 ```
 
 ## Wymagania systemowe

@@ -61,3 +61,55 @@ WAŻNE dla ikony w .desktop:
 
 SZUKANIE GIER NA DYSKACH:
 {"type": "run_command", "command": "findmnt --real -o TARGET -n | xargs -I{} find {} -maxdepth 6 -type d -name 'NAZWA_GRY' 2>/dev/null | head -5"}
+
+====================
+SKRÓTY W MENU APLIKACJI (menu start / launcher)
+====================
+
+Katalog dla skrótów widocznych w menu start (dla bieżącego użytkownika):
+  ~/.local/share/applications/
+
+Format pliku .desktop dla dowolnego skryptu/programu:
+[Desktop Entry]
+Type=Application
+Name=NazwaAplikacji
+Comment=Opis
+Exec=/pełna/ścieżka/do/skryptu.sh
+Icon=applications-games
+Terminal=false
+Categories=Game;
+
+Kategorie menu (Categories=):
+  Game;          → zakładka "Gry"
+  AudioVideo;    → zakładka "Multimedia"
+  Development;   → zakładka "Programowanie"
+  Network;       → zakładka "Internet"
+  Utility;       → zakładka "Narzędzia"
+  System;        → zakładka "System"
+
+FLOW dla "stwórz skrót w menu start":
+1. create_file → ~/.local/share/applications/nazwa.desktop
+2. chmod → mode "+x" na tym pliku
+BEZ run_command, BEZ update-desktop-database (KDE odświeża automatycznie)
+
+PRZYKŁAD - skrót do gry/launchera w zakładce Gry:
+{
+  "actions": [
+    {
+      "type": "create_file",
+      "path": "/home/USER/.local/share/applications/gameforge.desktop",
+      "content": "[Desktop Entry]\nType=Application\nName=GameForge\nComment=Uruchom GameForge\nExec=/home/USER/Games/uruchom.sh\nIcon=applications-games\nTerminal=false\nCategories=Game;\n"
+    },
+    {
+      "type": "chmod",
+      "path": "/home/USER/.local/share/applications/gameforge.desktop",
+      "mode": "+x"
+    }
+  ],
+  "message": "Skrót GameForge został dodany do menu aplikacji w zakładce Gry."
+}
+
+WAŻNE:
+- Exec= musi być PEŁNA ŚCIEŻKA ABSOLUTNA do skryptu (nie relatywna)
+- Jeśli skrypt wymaga terminala → Terminal=true
+- Nazwa pliku .desktop: małe litery, bez spacji, bez polskich znaków

@@ -44,8 +44,75 @@ class ActionValidator:
         "web_search": ActionRisk.EXECUTE,
         "web_scrape": ActionRisk.EXECUTE,
         "use_template": ActionRisk.MODIFY,
+        "save_memory": ActionRisk.SAFE,
     }
+
+    # Mapowanie zestawów pól → typ akcji (używane do odgadywania brakującego type)
+    _FIELD_TYPE_HINTS: List[Tuple[frozenset, str]] = [
+        (frozenset({"path", "content"}),           "create_file"),
+        (frozenset({"path", "patches"}),            "patch_file"),
+        (frozenset({"path", "match", "replace"}),   "edit_file"),
+        (frozenset({"path", "diff"}),               "patch_file"),
+        (frozenset({"from", "to"}),                 "move_file"),
+        (frozenset({"command"}),                    "run_command"),
+        (frozenset({"cmd"}),                        "run_command"),
+        (frozenset({"bash"}),                       "run_command"),
+        (frozenset({"shell"}),                      "run_command"),
+        (frozenset({"query"}),                      "web_search"),
+        (frozenset({"url"}),                        "web_scrape"),
+        (frozenset({"input_path", "output_format"}), "convert_media"),
+        (frozenset({"input_path", "operation"}),    "process_image"),
+        (frozenset({"content", "category"}),        "save_memory"),
+        (frozenset({"content", "fact"}),            "save_memory"),
+        (frozenset({"path", "mode"}),               "chmod"),
+        (frozenset({"pattern"}),                    "list_files"),
+        (frozenset({"path", "pattern"}),             "list_files"),
+        (frozenset({"path"}),                       "read_file"),
+    ]
+
+    @classmethod
+    def _guess_type(cls, action: Dict) -> Optional[str]:
+        """
+        Próbuje wydedukować brakujący 'type' na podstawie pól akcji.
+        Zwraca odgadnięty typ lub None gdy niemożliwe.
+        """
+        keys = set(action.keys())
+        best_type = None
+        best_score = 0
+        for required_fields, action_type in cls._FIELD_TYPE_HINTS:
+            overlap = len(keys & required_fields)
+            if overlap == len(required_fields) and overlap > best_score:
+                best_score = overlap
+                best_type = action_type
+        return best_type
     
+    # Aliasy nieznanych typów → znane typy
+    # Model czasem wymyśla nazwy których nie ma w RISK_MAP
+    _TYPE_ALIASES: dict = {
+        "create_shortcut":    "create_file",
+        "create-shortcut":    "create_file",
+        "create_desktop_file":"create_file",
+        "add_to_menu":        "create_file",
+        "register_app":       "run_command",
+        "install":            "run_command",
+        "install_app":        "run_command",
+        "pin":                "run_command",
+        "make_executable":    "chmod",
+        "set_executable":     "chmod",
+        "write_file":         "create_file",
+        "save_file":          "create_file",
+        "append_file":        "edit_file",
+        "update_file":        "edit_file",
+        "execute":            "run_command",
+        "shell":              "run_command",
+        "bash":               "run_command",
+        "cmd":                "run_command",
+        "command":            "run_command",
+        "search":             "web_search",
+        "copy_file":          "run_command",
+        "rename_file":        "move_file",
+    }
+
     @classmethod
     def validate(cls, actions: List[Dict]) -> Tuple[bool, List[str]]:
         """
@@ -56,14 +123,30 @@ class ActionValidator:
         
         for i, action in enumerate(actions):
             if "type" not in action:
-                errors.append(f"Akcja #{i+1}: brak pola 'type'")
-                continue
+                guessed = cls._guess_type(action)
+                if guessed:
+                    action["type"] = guessed
+                else:
+                    errors.append(f"Akcja #{i+1}: brak pola 'type'")
+                    continue
             
             action_type = action["type"]
             
             if action_type not in cls.RISK_MAP:
-                errors.append(f"Akcja #{i+1}: nieznany typ '{action_type}'")
-                continue
+                # Sprawdź alias
+                alias = cls._TYPE_ALIASES.get(action_type)
+                if alias:
+                    action["type"] = alias
+                    action_type = alias
+                else:
+                    # Nieznany typ - spróbuj odgadnąć z pól akcji
+                    guessed = cls._guess_type(action)
+                    if guessed:
+                        action["type"] = guessed
+                        action_type = guessed
+                    else:
+                        errors.append(f"Akcja #{i+1}: nieznany typ '{action_type}'")
+                        continue
             
             type_errors = cls._validate_action_type(action)
             errors.extend([f"Akcja #{i+1}: {e}" for e in type_errors])
@@ -90,6 +173,14 @@ class ActionValidator:
                     errors.append("pole 'pattern' musi być stringiem")
                 elif not action["pattern"]:
                     errors.append("pole 'pattern' nie może być puste")
+            if "path" in action:
+                # Usprawnienie 5: pole path jest teraz aktywnie używane przez
+                # action_executor do złożenia pełnej ścieżki glob;
+                # walidujemy że to string i nie jest pusty
+                if not isinstance(action["path"], str):
+                    errors.append("pole 'path' w list_files musi być stringiem")
+                elif not action["path"].strip():
+                    errors.append("pole 'path' w list_files nie może być puste")
             if "recursive" in action:
                 if not isinstance(action["recursive"], bool):
                     errors.append("pole 'recursive' musi być boolean")

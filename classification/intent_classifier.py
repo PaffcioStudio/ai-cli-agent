@@ -80,7 +80,9 @@ class IntentClassifier:
             "keywords": [
                 "co robi", "gdzie jest", "pokaż", "znajdź", "szukaj",
                 "jakie", "który", "które", "lista", "wyświetl",
-                "sprawdź", "zobacz", "przejrzyj"
+                "zobacz", "przejrzyj"
+                # UWAGA: "sprawdź" celowo usunięto z EXPLORE —
+                # "sprawdź" przy komendach systemowych to EXECUTE (run_command)
             ],
             "verbs": ["pokaż", "znajdź", "szukaj", "wyświetl", "lista"]
         },
@@ -113,17 +115,23 @@ class IntentClassifier:
         Intent.EXECUTE: {
             "keywords": [
                 "uruchom", "wykonaj", "otwórz", "zainstaluj",
-                "wystartuj", "odpal", "wdróż", "deploy"
+                "wystartuj", "odpal", "wdróż", "deploy",
+                # Diagnostyka systemu = akcja run_command, nie EXPLORE
+                "sprawdź", "sam sprawdź", "sprawdź sam", "zweryfikuj",
+                "sprawdź czy", "przetestuj", "ping", "połącz się",
+                # Ponawianie akcji
+                "jeszcze raz", "powtórz", "ponów", "anulowałem", "wykonaj ponownie",
             ],
-            "verbs": ["uruchom", "wykonaj", "otwórz", "zainstaluj"]
+            "verbs": ["uruchom", "wykonaj", "otwórz", "zainstaluj", "sprawdź", "powtórz"]
         },
         
         Intent.DELETE: {
             "keywords": [
                 "usuń", "skasuj", "wyczyść", "wywal", "pozbyj się",
-                "delete", "remove"
+                "delete", "remove", "odinstaluj", "deinstaluj",
+                "pozbądź się", "zlikwiduj", "wykop"
             ],
-            "verbs": ["usuń", "skasuj", "wyczyść"]
+            "verbs": ["usuń", "skasuj", "wyczyść", "wywal", "odinstaluj"]
         },
         
         Intent.QUESTION: {

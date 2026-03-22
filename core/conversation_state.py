@@ -175,8 +175,21 @@ class ConversationState:
         
         for msg in recent:
             role = "User" if msg["role"] == "user" else "AI"
-            content = msg["content"][:100]  # Max 100 znaków
-            lines.append(f"{role}: {content}")
+            raw = msg["content"]
+            # Usprawnienie: 300 znaków zamiast 100, przycinamy po ostatnim zdaniu
+            # żeby nie urywać w połowie słowa/myśli
+            if len(raw) > 300:
+                cut = raw[:300]
+                # cofnij do ostatniego separatora zdania
+                for sep in (".", "!", "?", "\n", ","):
+                    idx = cut.rfind(sep)
+                    if idx > 150:
+                        cut = cut[:idx + 1]
+                        break
+                snippet = cut
+            else:
+                snippet = raw
+            lines.append(f"{role}: {snippet}")
         
         lines.append("\nPamiętaj kontekst tej rozmowy przy odpowiedzi.")
         

@@ -45,14 +45,12 @@ class JSONParser:
                     )
 
             # Napraw: model zwrócił fragment akcji bez "type" lub bez "actions" wrappera
-            if isinstance(data, dict) and not data.get("message") and not data.get("actions") and not data.get("plan"):
-                data = self._try_recover_malformed_action(data)
-
-            return data
+            # oraz normalizuj akcje wewnątrz listy
+            return self._postprocess(data)
         except json.JSONDecodeError:
             fixed = self.fix_json(raw)
             if fixed is not None:
-                return fixed
+                return self._postprocess(fixed)
 
         # Wykryj odmowę w surowym tekście (gdy JSON był niepoprawny)
         if '"message"' in raw and any(x in raw.lower() for x in [
@@ -70,11 +68,11 @@ class JSONParser:
         match = re.search(markdown_pattern, raw, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group(1))
+                return self._postprocess(json.loads(match.group(1)))
             except json.JSONDecodeError:
                 fixed = self.fix_json(match.group(1))
                 if fixed is not None:
-                    return fixed
+                    return self._postprocess(fixed)
 
         # Próba 3: znajdź pierwszy { ... }
         json_start = -1
@@ -108,22 +106,76 @@ class JSONParser:
             )
 
         try:
-            return json.loads(raw[json_start:json_end])
+            return self._postprocess(json.loads(raw[json_start:json_end]))
         except json.JSONDecodeError as e:
             fixed = self.fix_json(raw[json_start:json_end])
             if fixed is not None:
-                return fixed
+                return self._postprocess(fixed)
             raise ValueError(f"Niepoprawny JSON: {e}")
+
+    def _postprocess(self, data: dict) -> dict:
+        """Normalizuje sparsowany JSON - naprawa typów, generowanie content itp."""
+        if not isinstance(data, dict):
+            return data
+        if not data.get("message") and not data.get("actions") and not data.get("plan"):
+            data = self._try_recover_malformed_action(data)
+        if isinstance(data.get("actions"), list):
+            data["actions"] = self._normalize_actions_list(data["actions"])
+        return data
+
+    @staticmethod
+    def _escape_control_chars(s: str) -> str:
+        """
+        Zamienia dosłowne znaki kontrolne (0x00-0x1F) wewnatrz JSON stringow
+        na prawidlowe sekwencje escape.
+
+        To jest glowna przyczyna bledu:
+          "Invalid control character at: line 1 column 68 (char 67)"
+        Lokalne modele (glm, qwen, llama) czesto wstawiaja dosłowny 0x0A (newline)
+        do stringa JSON zamiast sekwencji dwuznakowej backslash-n.
+
+        Implementacja: state machine zamiast regex - poprawnie obsluguje
+        znaki cudzyslowu i backslasha wewnatrz stringow.
+        """
+        ESCAPES = {'\n': '\\n', '\r': '\\r', '\t': '\\t',
+                   '\b': '\\b', '\f': '\\f'}
+        result = []
+        in_string = False
+        escape_next = False
+        for c in s:
+            if escape_next:
+                result.append(c)
+                escape_next = False
+            elif c == '\\' and in_string:
+                result.append(c)
+                escape_next = True
+            elif c == '"':
+                in_string = not in_string
+                result.append(c)
+            elif in_string and ord(c) < 0x20:
+                result.append(ESCAPES.get(c, f'\\u{ord(c):04x}'))
+            else:
+                result.append(c)
+        return ''.join(result)
 
     def fix_json(self, text: str) -> dict | None:
         """
         Naprawia typowe błędy JSON generowane przez lokalne modele:
+        - Znaki kontrolne wewnątrz stringów (\n, \t dosłownie zamiast \\n, \\t)
         - Komentarze // i /* */
         - Trailing commas (,} lub ,])
         - Pojedyncze cudzysłowy zamiast podwójnych
         - Niezakończone stringi (model urwał odpowiedź)
         """
         s = text
+
+        # 0. Zawsze escapuj znaki kontrolne PRZED wszystkim innym.
+        #    To najczęstsza przyczyna błędu:
+        #      "Invalid control character at: line 1 column N"
+        #    Lokalne modele (glm, qwen, llama) wstawiają dosłowny 0x0A/0x09
+        #    w środek stringa JSON. Operacja jest bezpieczna — nie zmienia
+        #    znaków poza stringami JSON.
+        s = self._escape_control_chars(s)
 
         # 1. Usuń komentarze //
         s = re.sub(r'//[^\n"]*\n', '\n', s)
@@ -204,6 +256,7 @@ class JSONParser:
         "delete_file": {"path"},
         "move_file":   {"from", "to"},
         "web_search":  {"query"},
+        "save_memory": {"content", "fact", "note", "text"},
     }
 
     def _try_recover_malformed_action(self, data: dict) -> dict:
@@ -216,6 +269,21 @@ class JSONParser:
         Przykład wyjścia:  { "message": "..." } lub { "actions": [...] }
         """
         keys = set(data.keys())
+
+        # Specjalny przypadek: model zwrócił {"memory": {...}} lub {"memory": "..."}
+        if "memory" in keys and len(keys) == 1:
+            mem_val = data["memory"]
+            if isinstance(mem_val, dict):
+                # Spłaszcz wartości słownika do jednej notatki lub wielu faktów
+                facts = []
+                for k, v in mem_val.items():
+                    if isinstance(v, str) and v.strip():
+                        facts.append({"type": "save_memory", "content": v.strip(), "category": k})
+                if facts:
+                    return {"actions": facts}
+            elif isinstance(mem_val, str) and mem_val.strip():
+                return {"actions": [{"type": "save_memory", "content": mem_val.strip()}]}
+
 
         # Sprawdź czy pasuje do któregoś znanych typów akcji
         best_match = None
@@ -255,6 +323,190 @@ class JSONParser:
         # Nie rozpoznano — owij w message żeby przynajmniej coś wyświetlić
         import json as _json
         return {"message": f"[Parser] Model zwrócił nierozpoznany JSON: {_json.dumps(data, ensure_ascii=False)[:200]}"}
+
+    # Aliasy nieznanych type → znane (synchronizowane z ActionValidator._TYPE_ALIASES)
+    _TYPE_ALIASES = {
+        "create_shortcut":     "create_file",
+        "create-shortcut":     "create_file",
+        "create_desktop_file": "create_file",
+        "add_to_menu":         "create_file",
+        "register_app":        "run_command",
+        "install":             "run_command",
+        "install_app":         "run_command",
+        "pin":                 "run_command",
+        "make_executable":     "chmod",
+        "set_executable":      "chmod",
+        "write_file":          "create_file",
+        "save_file":           "create_file",
+        "append_file":         "edit_file",
+        "update_file":         "edit_file",
+        "execute":             "run_command",
+        "shell":               "run_command",
+        "bash":                "run_command",
+        "cmd":                 "run_command",
+        "command":             "run_command",
+        "search":              "web_search",
+        "copy_file":           "run_command",
+        "rename_file":         "move_file",
+    }
+
+    def _normalize_actions_list(self, actions: list) -> list:
+        """
+        Iteruje po liście akcji i dla każdej bez pola 'type' próbuje go
+        wydedukować na podstawie obecnych pól - używając tej samej logiki
+        co ActionValidator._guess_type, ale bez importu circular.
+        """
+        _FIELD_TYPE_HINTS = [
+            ({"path", "content"},            "create_file"),
+            ({"path", "patches"},            "patch_file"),
+            ({"path", "match", "replace"},   "edit_file"),
+            ({"path", "diff"},               "patch_file"),
+            ({"from", "to"},                 "move_file"),
+            ({"command"},                    "run_command"),
+            ({"cmd"},                        "run_command"),
+            ({"bash"},                       "run_command"),
+            ({"shell"},                      "run_command"),
+            ({"query"},                      "web_search"),
+            ({"url"},                        "web_scrape"),
+            ({"input_path", "output_format"}, "convert_media"),
+            ({"input_path", "operation"},    "process_image"),
+            ({"content", "category"},        "save_memory"),
+            ({"content", "fact"},            "save_memory"),
+            ({"path", "mode"},               "chmod"),
+            ({"pattern"},                    "list_files"),
+            ({"path"},                       "read_file"),
+        ]
+        result = []
+        for action in actions:
+            if not isinstance(action, dict):
+                result.append(action)
+                continue
+            if "type" not in action:
+                keys = set(action.keys())
+                for required, guessed_type in _FIELD_TYPE_HINTS:
+                    if keys >= set(required):
+                        action = dict(action)
+                        action["type"] = guessed_type
+                        # Normalizuj aliasy run_command
+                        if guessed_type == "run_command":
+                            for alias in ("cmd", "bash", "shell"):
+                                if alias in action and "command" not in action:
+                                    action["command"] = action.pop(alias)
+                                    break
+                        break
+            elif action["type"] in self._TYPE_ALIASES:
+                action = dict(action)
+                action["type"] = self._TYPE_ALIASES[action["type"]]
+            elif action["type"] not in {
+                "read_file","create_file","edit_file","patch_file","delete_file",
+                "move_file","list_files","mkdir","chmod","open_path","run_command",
+                "semantic_search","download_media","convert_media","process_image",
+                "batch_images","image_info","web_search","web_scrape",
+                "clipboard_read","clipboard_write","use_template","save_memory",
+            }:
+                # Całkowicie nieznany typ - próbuj odgadnąć z pól
+                guessed = self._guess_type_from_fields(action)
+                if guessed:
+                    action = dict(action)
+                    action["type"] = guessed
+
+            # Auto-generuj content dla plików .desktop bez content
+            if (
+                action.get("type") == "create_file"
+                and not action.get("content")
+                and str(action.get("path", "")).endswith(".desktop")
+            ):
+                action = dict(action)
+                action["content"] = self._generate_desktop_content(action)
+
+            # Auto-generuj path dla create_file .desktop gdy brak path ale jest name
+            if (
+                action.get("type") == "create_file"
+                and not action.get("path")
+                and action.get("name")
+            ):
+                action = dict(action)
+                action["path"] = self._desktop_path_from_name(action["name"])
+                if not action.get("content"):
+                    action["content"] = self._generate_desktop_content(action)
+
+            result.append(action)
+        return result
+
+    def _guess_type_from_fields(self, action: dict) -> str | None:
+        """
+        Dla akcji z nieznanym type próbuje odgadnąć właściwy typ na podstawie pól.
+        Rozszerzona wersja obsługująca aliasy pól (target, exec_command itp.).
+        """
+        keys = set(action.keys()) - {"type"}
+
+        # Skróty .desktop: name + (exec|exec_command|target) → create_file
+        if action.get("name") and (
+            action.get("exec") or action.get("exec_command")
+            or action.get("target") or action.get("command")
+        ):
+            return "create_file"
+
+        # Standardowe dopasowania po polach
+        hints = [
+            ({"path", "content"},             "create_file"),
+            ({"path", "patches"},             "patch_file"),
+            ({"path", "match", "replace"},    "edit_file"),
+            ({"path", "diff"},                "patch_file"),
+            ({"from", "to"},                  "move_file"),
+            ({"command"},                     "run_command"),
+            ({"cmd"},                         "run_command"),
+            ({"bash"},                        "run_command"),
+            ({"shell"},                       "run_command"),
+            ({"query"},                       "web_search"),
+            ({"url"},                         "web_scrape"),
+            ({"input_path", "output_format"}, "convert_media"),
+            ({"input_path", "operation"},     "process_image"),
+            ({"content", "category"},         "save_memory"),
+            ({"path", "mode"},                "chmod"),
+            ({"pattern"},                     "list_files"),
+            ({"path"},                        "read_file"),
+        ]
+        for required, guessed in hints:
+            if keys >= set(required):
+                return guessed
+        return None
+
+    def _generate_desktop_content(self, action: dict) -> str:
+        """
+        Generuje treść pliku .desktop z pól podanych przez model zamiast 'content'.
+        Obsługuje pola: name, exec, exec_command, target, comment, icon, terminal, categories, keywords
+        """
+        name     = action.get("name") or action.get("app_name") or "Aplikacja"
+        exec_cmd = (action.get("exec") or action.get("exec_command")
+                    or action.get("target") or action.get("command") or "")
+        comment  = action.get("comment") or action.get("description") or f"Uruchom {name}"
+        icon     = action.get("icon") or "applications-games"
+        terminal = "true" if action.get("terminal") else "false"
+        cats     = action.get("categories") or action.get("category") or "Game;"
+        if not cats.endswith(";"):
+            cats += ";"
+
+        lines = [
+            "[Desktop Entry]",
+            "Type=Application",
+            f"Name={name}",
+            f"Comment={comment}",
+            f"Exec={exec_cmd}",
+            f"Icon={icon}",
+            f"Terminal={terminal}",
+            f"Categories={cats}",
+        ]
+        if action.get("keywords"):
+            lines.append(f"Keywords={action['keywords']}")
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _desktop_path_from_name(name: str) -> str:
+        """Generuje ścieżkę .desktop z nazwy aplikacji."""
+        import re
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+        return f"/home/{__import__('os').getenv('USER', 'user')}/.local/share/applications/{slug}.desktop"
 
     def rescue_code_from_message(self, message: str) -> dict | None:
         """

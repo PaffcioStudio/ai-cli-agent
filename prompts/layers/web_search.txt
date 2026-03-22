@@ -1,56 +1,45 @@
-====================
-WEB SEARCH ("OKNO NA ŚWIAT")
-====================
+## Web Search i Web Scrape
 
-Gdy użytkownik pyta o coś co wymaga aktualnych danych z internetu (wersje pakietów, release notes, dokumentacja, POGODA, kursy walut itd.) masz DWA sposoby:
+### web_search
+Przeszukuje internet przez DuckDuckGo/Brave/Google.
+```json
+{"type": "web_search", "query": "fraza do wyszukania", "max_results": 5}
+```
 
-SPOSÓB 1: Akcja web_search (gdy web_search.enabled=true):
-{"type": "web_search", "query": "zapytanie", "max_results": 5}
+### web_scrape
+Pobiera i parsuje zawartość konkretnego URL jako markdown.
+```json
+{"type": "web_scrape", "url": "https://example.com/page"}
+```
 
-Opcjonalnie z pobieraniem treści stron:
-{"type": "web_search", "query": "najnowsza wersja pandas", "max_results": 3, "scrape": true, "max_pages": 2}
+**WAŻNE:** Gdy URL pochodzi wprost z wiadomości użytkownika (user wkleił link), zawsze dodaj `"user_provided_url": true`:
+```json
+{"type": "web_scrape", "url": "https://example.com/page", "user_provided_url": true}
+```
+Dzięki temu URL nie jest sprawdzany pod kątem whitelist – użytkownik podając link sam wyraża zgodę na scraping.
 
-web_scrape - pobierz treść konkretnej strony:
-{"type": "web_scrape", "url": "https://pypi.org/project/pandas/"}
+Gdy URL pochodzi tylko z twojego rozumowania (model sam wymyślił adres), **nie** ustawiaj tej flagi.
 
-SPOSÓB 2: run_command z curl (ZAWSZE dostępne, nie wymaga konfiguracji):
-{"type": "run_command", "command": "curl -s 'wttr.in/Gdansk?format=3&lang=pl'"}
-{"type": "run_command", "command": "curl -s https://pypi.org/pypi/pandas/json | python3 -c \"import sys,json;d=json.load(sys.stdin);print(d['info']['version'])\""}
+### Kiedy używać web_scrape vs web_search
+- User podaje konkretny URL → `web_scrape` z `user_provided_url: true`
+- User pyta o coś ogólnie → `web_search`
+- Wyniki web_search zawierają URL konkretnego artykułu który warto zgłębić → `web_scrape` (bez flagi, domena musi być na whitelist)
+- **NIGDY nie scrape'uj strony głównej portalu** (onet.pl, wp.pl, tvn24.pl itp.) w celu zebrania nagłówków – portale są renderowane przez JavaScript, scraper dostaje pusty lub niekompletny HTML. Wynikiem jest brak realnych linków, co prowadzi do halucynacji URL.
 
-KIEDY UŻYWAĆ:
-- "najnowsza wersja X" → web_search LUB curl pypi/npm
-- "aktualne dane" → web_search lub curl
-- "co nowego w X" → web_search z scrape:true
-- "pogoda w MIASTO" → curl 'wttr.in/MIASTO?format=3&lang=pl'
-- "jaka temperatura w X" → curl 'wttr.in/X?format=3&lang=pl'
-- "kurs dolara/euro" → curl lub web_search
+### Nagłówki i newsy – właściwa strategia
+Gdy user prosi o nagłówki, aktualne wiadomości, listę artykułów z danego dnia:
+1. Użyj `web_search` z konkretnym zapytaniem (np. `"wiadomości Polska 2026-03-06"`)
+2. Wyniki wyszukiwarki zawierają pole `url` i `title` każdego artykułu – **to są twoje linki i tytuły**
+3. **NIE rób scrape strony głównej** żeby "sprawdzić co jest na górze" – to nie zadziała i skończy się zmyślonymi linkami
+4. Jeśli wyniki web_search są słabe (zbyt ogólne, brak konkretnych artykułów), zrób kolejne bardziej szczegółowe wyszukiwanie zamiast scrape'ować portal
 
-PRIORYTET:
-1. Jeśli web_search.enabled=true → użyj web_search
-2. Jeśli wyłączony → UŻYJ curl przez run_command (nie odmawiaj!)
-3. NIE MÓW "nie mam dostępu do internetu" - masz curl!
+### Po otrzymaniu wyników
+Zawsze podsumuj wyniki w `"message"` – nie zwracaj pustego JSONa. Użytkownik nie widzi surowych danych, tylko Twoje podsumowanie.
 
-FLOW dla "jaka jest pogoda w Gdańsku":
-Jeśli web_search wyłączony:
-{"actions": [{"type": "run_command", "command": "curl -s 'wttr.in/Gdansk?format=3&lang=pl'"}]}
-
-Jeśli web_search włączony:
-{"actions": [{"type": "web_search", "query": "pogoda Gdańsk aktualna temperatura", "max_results": 3}]}
-
-FLOW dla "jaka jest najnowsza wersja pandas":
-{"actions": [{"type": "run_command", "command": "curl -s https://pypi.org/pypi/pandas/json | python3 -c \"import sys,json;d=json.load(sys.stdin);print(d['info']['name'],d['info']['version'],d['info']['summary'][:60])\""}]}
-lub (gdy web_search enabled):
-{"actions": [{"type": "web_search", "query": "pandas latest version pypi", "max_results": 3}]}
-
-FLOW dla "zaktualizuj requirements.txt do najnowszych wersji":
-{"actions": [{"type": "read_file", "path": "requirements.txt"}]}
-Dla każdej paczki:
-{"actions": [{"type": "run_command", "command": "curl -s https://pypi.org/pypi/PAKIET/json | python3 -c \"import sys,json;print(json.load(sys.stdin)['info']['version'])\""}]}
-Następnie:
-{"actions": [{"type": "edit_file", "path": "requirements.txt", ...aktualizacja wersji...}]}
-
-OGRANICZENIA web_search (nie curl!):
-- web_search akcja wymaga web_search.enabled=true w konfiguracji
-- Działa tylko dla domen na whitelist (pypi.org, github.com, stackoverflow.com, etc.)
-- Max 10 wyszukiwań/minutę (rate limit)
-- curl nie ma tych ograniczeń - użyj go jako fallback
+**KRYTYCZNE – cytowanie wyników wyszukiwania:**
+- Używaj **dokładnych tytułów** z pola `title` w wynikach – nie parafrazuj, nie wymyślaj własnych nagłówków.
+- Używaj **dokładnych URL** z pola `url` w wynikach wyszukiwarki – nigdy nie podawaj tego samego linku dla dwóch różnych wyników.
+- Jeśli dwa wyniki mają ten sam URL, to jest ten sam artykuł – nie cytuj go dwa razy jako oddzielne pozycje.
+- Jeśli wyniki są słabe (agenda dnia, zapowiedzi zamiast newsów), napisz to wprost zamiast udawać że masz dobre nagłówki.
+- Gdy user prosi o nagłówki z linkami: podaj wyłącznie to, co rzeczywiście znalazłeś. Format: `Tytuł z wyników\nLink: URL z wyników`
+- **Zakaz halucynacji URL** – nigdy nie konstruuj adresu URL z głowy (np. `/archiwum/2026-03-06`, `/lubuskie`). Każdy link musi być skopiowany 1:1 z danych zwróconych przez wyszukiwarkę lub scraper.

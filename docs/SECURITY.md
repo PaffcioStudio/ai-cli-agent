@@ -27,9 +27,9 @@ Konfiguracja:
 
 ```json
 {
-  "execution": {
-    "auto_confirm_safe_commands": true
-  }
+ "execution": {
+ "auto_confirm_safe_commands": true
+ }
 }
 ```
 
@@ -38,21 +38,21 @@ Konfiguracja:
 Kontrola dozwolonych typów akcji **per-projekt**:
 
 ```bash
-ai capability list                    # Pokaż status
-ai capability disable allow_execute  # Blokuj komendy bash
-ai capability disable allow_delete   # Blokuj usuwanie
-ai capability disable allow_git      # Blokuj git (przyszłe)
-ai capability disable allow_network  # Blokuj sieć (przyszłe)
+ai capability list # Pokaż status
+ai capability disable allow_execute # Blokuj komendy bash
+ai capability disable allow_delete # Blokuj usuwanie
+ai capability disable allow_git # Blokuj git (przyszłe)
+ai capability disable allow_network # Blokuj sieć (przyszłe)
 ```
 
 Gdy AI spróbuje naruszenia:
 
 ```
 ✗ Akcje naruszają ograniczenia projektu:
-  • Akcja #1 (run_command): Capability 'allow_execute' wyłączone
+ • Akcja #1 (run_command): Capability 'allow_execute' wyłączone
 
 Aby włączyć:
-  ai capability enable allow_execute
+ ai capability enable allow_execute
 ```
 
 ## Blokady destrukcyjne (hardcoded)
@@ -73,7 +73,7 @@ Każda modyfikacja pliku jest objęta transakcją:
 
 ```
 snapshot pliku → modyfikacja → [błąd?] → rollback
-                             → [ok?]   → commit
+ → [ok?] → commit
 ```
 
 Gwarancje:
@@ -88,26 +88,26 @@ Każda operacja jest logowana w `<projekt>/.ai-logs/operations.jsonl`:
 
 ```json
 {
-  "timestamp": "2026-02-28T15:42:00",
-  "user": "Paffcio",
-  "command": "napraw błędy w app.py",
-  "intent": "modify",
-  "actions": [
-    {"type": "edit_file", "path": "app.py", "success": true}
-  ],
-  "overall_success": true
+ "timestamp": "2026-02-28T15:42:00",
+ "user": "Paffcio",
+ "command": "napraw błędy w app.py",
+ "intent": "modify",
+ "actions": [
+ {"type": "edit_file", "path": "app.py", "success": true}
+ ],
+ "overall_success": true
 }
 ```
 
 ```bash
-ai audit  # Czytelny widok ostatnich decyzji
+ai audit # Czytelny widok ostatnich decyzji
 ```
 
 ## Tryb dry-run i plan
 
 ```bash
-ai --dry-run usuń stare logi    # Symulacja bez zmian FS
-ai --plan stwórz API w Express  # Tylko plan, zero akcji
+ai --dry-run usuń stare logi # Symulacja bez zmian FS
+ai --plan stwórz API w Express # Tylko plan, zero akcji
 ```
 
 W dry-run: operacje FS są symulowane (pokazują co by się stało), komendy bash **nie są** wykonywane.

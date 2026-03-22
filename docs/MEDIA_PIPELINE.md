@@ -22,21 +22,21 @@ ai pobierz w 720p https://youtube.com/watch?v=...
 
 ```
 1. Detekcja narzędzi (yt-dlp, ffmpeg)
-          ↓
+ ↓
 2. Instalacja jeśli brakuje (apt → pip → GitHub release)
-          ↓
+ ↓
 3. Pobieranie do ~/Downloads/ai-downloads/tmp/
-          ↓
+ ↓
 4. Walidacja pliku (rozmiar > 10KB, metadane)
-          ↓
+ ↓
 5. Konwersja (opcjonalnie, via ffmpeg)
-          ↓
+ ↓
 6. Walidacja outputu
-          ↓
+ ↓
 7. Przeniesienie do ~/Downloads/ai-downloads/
-          ↓
+ ↓
 8. Cleanup tmp/ (TYLKO po sukcesie)
-          ↓
+ ↓
 9. Raport: tytuł, rozmiar, czas trwania, lokalizacja
 ```
 
@@ -82,12 +82,12 @@ Fallback chain (auto): `apt` → `pip` → `GitHub release binary`
 
 ```python
 result = pipeline.download_media(
-    url="https://youtube.com/watch?v=...",
-    output_format="best",  # best | worst | 720p | 1080p
-    audio_only=False
+ url="https://youtube.com/watch?v=...",
+ output_format="best", # best | worst | 720p | 1080p
+ audio_only=False
 )
 # result: {"success": bool, "filepath": Path, "title": str,
-#          "size_mb": float, "duration": str, "error": str}
+# "size_mb": float, "duration": str, "error": str}
 ```
 
 Timeout: 10 minut.
@@ -96,9 +96,9 @@ Timeout: 10 minut.
 
 ```python
 result = pipeline.convert_to_audio(
-    video_path=Path("/tmp/video.mp4"),
-    audio_format="mp3",  # mp3 | m4a | opus
-    bitrate="192k"        # 128k | 192k | 320k
+ video_path=Path("/tmp/video.mp4"),
+ audio_format="mp3", # mp3 | m4a | opus
+ bitrate="192k" # 128k | 192k | 320k
 )
 ```
 
@@ -106,10 +106,10 @@ result = pipeline.convert_to_audio(
 
 ```
 ✓ Pobrano: Rick Astley - Never Gonna Give You Up
-  Rozmiar: 42.5 MB
-  Czas trwania: 03:32
+ Rozmiar: 42.5 MB
+ Czas trwania: 03:32
 ✓ Przekonwertowano do MP3 (192 kbps)
-  Rozmiar: 8.2 MB
+ Rozmiar: 8.2 MB
 📁 Lokalizacja: ~/Downloads/ai-downloads/Rick_Astley_Never_Gonna_Give_You_Up.mp3
 🧹 Usunięto plik tymczasowy: tak
 ```
@@ -120,12 +120,12 @@ W `~/.config/ai/config.json`:
 
 ```json
 {
-  "media": {
-    "download_timeout_minutes": 10,
-    "convert_timeout_minutes": 5,
-    "default_audio_bitrate": "192k",
-    "download_dir": "~/Downloads/ai-downloads"
-  }
+ "media": {
+ "download_timeout_minutes": 10,
+ "convert_timeout_minutes": 5,
+ "default_audio_bitrate": "192k",
+ "download_dir": "~/Downloads/ai-downloads"
+ }
 }
 ```
 

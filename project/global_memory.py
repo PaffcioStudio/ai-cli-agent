@@ -117,10 +117,25 @@ class GlobalMemory:
           "zapisz że preferuję dark mode"
           "zapamiętaj: jestem z Gdańska"
           "zapamietaj ze mam psa"
+
+        NIE wykrywa (zwraca None — to zadania dla AI, nie fakty):
+          "zapamiętaj jakie mam preferencje"
+          "potrzebuje do memory notatkę na temat moich preferencji"
+          "zapisz do pamięci moje preferencje z rozmowy"
         """
         patterns = [
             r"(?:zapamiętaj|zapamietaj|zapisz|zanotuj|note that|remember)[,:\s]+(?:że|ze|to|that)?\s+(.+)",
             r"(?:zapamiętaj|zapamietaj|zapisz|zanotuj)[,:\s]+(.+)",
+        ]
+
+        # Frazy wskazujące że to polecenie dla AI (żądanie podsumowania/wygenerowania),
+        # a nie konkretny fakt do zapisania
+        AI_TASK_INDICATORS = [
+            r"^(jakie|co|które|jak|ile|czego|skąd|kiedy|gdzie)\b",  # pytania zaimkowe
+            r"\b(z rozmowy|z chatu|z kontekstu|z tej rozmowy)\b",
+            r"\b(moje preferencje|moich preferencji|na temat mnie|o mnie)\b",
+            r"\b(notatkę|notatki|podsumowanie|streszczenie)\b",
+            r"\b(napisz|stwórz|przygotuj|wygeneruj|zrób)\b",
         ]
 
         text = user_input.strip()
@@ -128,8 +143,13 @@ class GlobalMemory:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
                 fact = m.group(1).strip().rstrip(".")
-                if len(fact) > 3:
-                    return fact
+                if len(fact) <= 3:
+                    continue
+                # Sprawdź czy to polecenie do AI zamiast konkretny fakt
+                for indicator in AI_TASK_INDICATORS:
+                    if re.search(indicator, fact, re.IGNORECASE):
+                        return None  # To zadanie dla AI, nie fakt
+                return fact
         return None
 
     def auto_extract_and_save(self, user_input: str, ai_response: str) -> list:

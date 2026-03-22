@@ -4,37 +4,37 @@
 
 ```
 Użytkownik → main.py (CLI + flagi)
-                ↓
-          AIAgent.run()
-                ↓
-     IntentClassifier.classify()     ← rozpoznanie zamiaru
-                ↓
-     Web Search auto-trigger?        ← opcjonalne
-                ↓
-     RAG: KnowledgeBase.search()     ← opcjonalne
-                ↓
-     PromptBuilder.build()           ← core + warstwy inject
-                ↓
-     OllamaClient.chat()             ← retry/backoff, smart routing
-                ↓
-     JSONParser.extract_json()       ← parsowanie + rescue
-                ↓
-     ActionValidator.validate()      ← typy, ryzyko
-     CapabilityManager.validate()    ← ograniczenia projektu
-     ActionPlanner.create_plan()     ← kolejność, walidacja planu
-                ↓
-     UI: pokazanie akcji + confirm   ← jeśli potrzebne
-                ↓
-     TransactionManager.begin()
-                ↓
-     ActionExecutor.execute()        ← każda akcja z backupem
-                ↓
-     TransactionManager.commit/rollback
-                ↓
-     Logger.log_operation()          ← audit trail
-     ProjectMemory.update()          ← konwencje, intenty
-                ↓
-     Następna iteracja lub koniec    ← max 8 iteracji
+ ↓
+ AIAgent.run()
+ ↓
+ IntentClassifier.classify() ← rozpoznanie zamiaru
+ ↓
+ Web Search auto-trigger? ← opcjonalne
+ ↓
+ RAG: KnowledgeBase.search() ← opcjonalne
+ ↓
+ PromptBuilder.build() ← core + warstwy inject
+ ↓
+ OllamaClient.chat() ← retry/backoff, smart routing
+ ↓
+ JSONParser.extract_json() ← parsowanie + rescue
+ ↓
+ ActionValidator.validate() ← typy, ryzyko
+ CapabilityManager.validate() ← ograniczenia projektu
+ ActionPlanner.create_plan() ← kolejność, walidacja planu
+ ↓
+ UI: pokazanie akcji + confirm ← jeśli potrzebne
+ ↓
+ TransactionManager.begin()
+ ↓
+ ActionExecutor.execute() ← każda akcja z backupem
+ ↓
+ TransactionManager.commit/rollback
+ ↓
+ Logger.log_operation() ← audit trail
+ ProjectMemory.update() ← konwencje, intenty
+ ↓
+ Następna iteracja lub koniec ← max 8 iteracji
 ```
 
 ## Kluczowe klasy
@@ -51,7 +51,7 @@ Główna klasa. Inicjalizuje wszystkie moduły, orkiestruje pętlę wykonania.
 5. Jeśli wyniki wymagają follow-up (np. `file_content`, `command_result`) → dodaj do historii i powtórz
 6. Jeśli model za długo zbiera dane bez tworzenia plików → wstrzyknij `force_action`
 
-**Historia rozmowy:** max 6 wiadomości (3 pary) - starsze są przycinane.
+**Historia rozmowy:** max 10 wiadomosci w RAM (ConversationState). Persystentna historia zapisywana do `conversation_history.jsonl` przez ConversationHistory (max `conversation.max_saved_messages`, domyslnie 40). Wczytywana przy starcie jesli uzytkownik potwierdzi.
 
 **Token savings:** do historii trafia skrót akcji (`{type, path}`) + wyniki max 300 znaków, nie cały surowy JSON.
 
@@ -120,13 +120,21 @@ Centralny logger z dwoma poziomami:
 - `errors.log` - tylko błędy
 
 **Audit trail** (`<projekt>/.ai-logs/`):
-- `operations.jsonl` - każda operacja (JSONL): timestamp, user, command, intent, akcje, sukces
+- `operations.jsonl` - kazda operacja (JSONL): timestamp, run_id, iteration, user, command, intent, akcje, sukces
 - `session.log` - czytelny log: `[ts] USER: "..." | AI: "..." | ACTIONS: edit_file:app.py`
-- `responses.jsonl` - surowe odpowiedzi modelu
+- `responses.jsonl` - surowe odpowiedzi modelu (bez markdown fences, z run_id)
+- `conversation_history.jsonl` - persystentna historia rozmow (wczytywana przy starcie sesji)
 
 ### ConversationState (`core/conversation_state.py`)
 
-Bufor ostatnich 10 tur dialogu. Format: `[{role: user/assistant, content: ...}]`.
+Bufor ostatnich 10 tur dialogu w RAM. Format: `[{role: user/assistant, content: ...}]`.
+
+Obsluguje tez pending confirmation.
+
+### ConversationHistory (`core/conversation_history.py`)
+
+Persystentny zapis historii rozmow do `.ai-logs/conversation_history.jsonl`.
+Przy starcie agenta sprawdza czy plik istnieje i oferuje wznowienie. Konfigurowane przez `conversation.*` w config.json. Format: `[{role: user/assistant, content: ...}]`.
 
 Obsługuje też pending confirmation - gdy akcja wymaga potwierdzenia, AI wraca do inputu użytkownika.
 
@@ -134,21 +142,21 @@ Obsługuje też pending confirmation - gdy akcja wymaga potwierdzenia, AI wraca 
 
 ```
 Wejście użytkownika
-        ↓
-IntentClassifier          ← co chce zrobić?
-        ↓
-ActionValidator           ← czy akcje są poprawne? (typy, wymagane pola)
-        ↓
-CapabilityManager         ← czy projekt na to pozwala?
-        ↓
-ActionPlanner             ← czy plan ma sens? kolejność?
-        ↓
-_needs_confirm()          ← czy pytać o zgodę?
-        ↓
-_validate_destructive_context()  ← czy nie usuwamy czegoś krytycznego?
-        ↓
-TransactionManager        ← backup + rollback
-        ↓
+ ↓
+IntentClassifier ← co chce zrobić?
+ ↓
+ActionValidator ← czy akcje są poprawne? (typy, wymagane pola)
+ ↓
+CapabilityManager ← czy projekt na to pozwala?
+ ↓
+ActionPlanner ← czy plan ma sens? kolejność?
+ ↓
+_needs_confirm() ← czy pytać o zgodę?
+ ↓
+_validate_destructive_context() ← czy nie usuwamy czegoś krytycznego?
+ ↓
+TransactionManager ← backup + rollback
+ ↓
 Wykonanie
 ```
 

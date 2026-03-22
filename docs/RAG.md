@@ -12,8 +12,8 @@ System semantycznego wyszukiwania w lokalnych plikach Markdown/tekstowych. Wzbog
 ## Katalogi wiedzy
 
 ```
-<projekt>/knowledge/          # Wiedza specyficzna dla projektu
-~/.config/ai/knowledge/       # Globalna wiedza (wszystkie projekty)
+<projekt>/knowledge/ # Wiedza specyficzna dla projektu
+~/.config/ai/knowledge/ # Globalna wiedza (wszystkie projekty)
 ```
 
 Obie lokalizacje są skanowane jednocześnie.
@@ -62,33 +62,33 @@ Dobre praktyki:
 ```
 knowledge/
 ├── linux/
-│   ├── podstawy.md
-│   ├── bash_skrypty.md
-│   └── systemd.md
+│ ├── podstawy.md
+│ ├── bash_skrypty.md
+│ └── systemd.md
 ├── python/
-│   ├── podstawy_python.md
-│   ├── rag_embeddingi.md
-│   └── struktura_projektu.md
+│ ├── podstawy_python.md
+│ ├── rag_embeddingi.md
+│ └── struktura_projektu.md
 ├── docker/
-│   └── docker_podstawy.md
+│ └── docker_podstawy.md
 ├── git/
-│   └── podstawy_git.md
+│ └── podstawy_git.md
 └── bezpieczenstwo/
-    └── podstawy_bezpieczenstwa.md
+ └── podstawy_bezpieczenstwa.md
 ```
 
 ## Konfiguracja
 
 ```json
 {
-  "rag": {
-    "enabled": true,
-    "top_k": 4
-  },
-  "semantic": {
-    "enabled": true,
-    "cache_embeddings": true
-  }
+ "rag": {
+ "enabled": true,
+ "top_k": 4
+ },
+ "semantic": {
+ "enabled": true,
+ "cache_embeddings": true
+ }
 }
 ```
 
@@ -96,9 +96,9 @@ Wyłączenie RAG:
 
 ```json
 {
-  "rag": {
-    "enabled": false
-  }
+ "rag": {
+ "enabled": false
+ }
 }
 ```
 
@@ -120,9 +120,9 @@ Wektory są cache'owane w `~/.cache/ai/rag/`. Przebuduj indeks gdy:
 - Zmieniasz model embeddingów
 
 ```bash
-ai --index          # Przebuduj
+ai --index # Przebuduj
 # lub
-ai --reindex        # To samo
+ai --reindex # To samo
 ```
 
 Wyczyść cache ręcznie:
@@ -143,8 +143,8 @@ Włącz verbose logi w config:
 
 ```json
 {
-  "debug": {
-    "log_level": "debug"
-  }
+ "debug": {
+ "log_level": "debug"
+ }
 }
 ```

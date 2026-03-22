@@ -223,6 +223,7 @@ class StagnationDetector:
     CYCLE_WINDOW = 4       # Ile ostatnich iteracji sprawdzamy
     EXACT_CYCLE_MIN = 2    # Ile powtórzeń tego samego fingerprinta = cykl
     NO_PROGRESS_LIMIT = 4  # Ile iteracji bez modyfikacji = stagnacja
+    READ_ONLY_LIMIT = 3    # Ile iteracji samego read/list bez patch = stagnacja
 
     def check(self, ctx: IterationContext) -> Tuple[bool, str]:
         """
@@ -254,6 +255,19 @@ class StagnationDetector:
                 f"bez żadnej modyfikacji pliku"
             )
 
+        # ── Read-only loop: tylko read_file/list_files przez kilka iteracji ─
+        if len(history) >= self.READ_ONLY_LIMIT:
+            recent_fps = [fp for _, fp in history[-self.READ_ONLY_LIMIT:]]
+            all_read_only = all(
+                all(part.startswith(("read:", "list:")) for part in fp.split("|"))
+                for fp in recent_fps
+            )
+            if all_read_only and ctx.collect_only_streak >= self.READ_ONLY_LIMIT:
+                return True, (
+                    f"Read-only loop: {self.READ_ONLY_LIMIT} iteracji samych odczytów "
+                    f"bez żadnej modyfikacji"
+                )
+
         return False, ""
 
 
@@ -263,13 +277,21 @@ def _actions_fingerprint(actions: List[Dict]) -> str:
     """
     Stwórz krótki fingerprint listy akcji do porównania.
     Np. [read_file:app.py, run_command:grep] → "read:app.py|run:grep"
+
+    Usprawnienie: list_files uwzględnia zarówno path jak i pattern
+    żeby list:/Pobrane/*.mp4 != list:/Wideo/*.mp4 i nie wywoływał
+    fałszywego exact-cycle przy eksploracji różnych katalogów.
     """
     parts = []
     for a in actions:
         t = a.get("type", "?")
-        # Skróć typ
         short_type = t.split("_")[0] if "_" in t else t
-        # Klucz identyfikujący cel akcji
-        target = a.get("path") or a.get("command", "")[:30] or a.get("query", "")[:20] or ""
+        if t == "list_files":
+            # Łączymy path + pattern dla jednoznacznej identyfikacji
+            lf_path = a.get("path", "")
+            lf_pat  = a.get("pattern", "*")
+            target  = f"{lf_path}/{lf_pat}".strip("/")
+        else:
+            target = a.get("path") or a.get("command", "")[:30] or a.get("query", "")[:20] or ""
         parts.append(f"{short_type}:{target}")
     return "|".join(parts)

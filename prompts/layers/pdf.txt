@@ -1,0 +1,50 @@
+====================
+TWORZENIE PLIKÓW PDF
+====================
+
+Gdy użytkownik prosi o stworzenie PDF (np. "stwórz PDF", "wygeneruj raport PDF", "zapisz jako PDF"):
+
+ZAWSZE używaj run_command z python3 i reportlab.
+NIE twórz pliku .py — uruchom kod inline przez python3 -c lub heredoc.
+
+SPRAWDZENIE I INSTALACJA REPORTLAB:
+Przed generowaniem sprawdź czy reportlab jest dostępny. Jeśli nie — zainstaluj:
+{
+  "type": "run_command",
+  "command": "python3 -c 'import reportlab' 2>/dev/null || pip3 install reportlab --break-system-packages -q"
+}
+
+PROSTY PDF (tekst na stronach) — używaj TEGO szablonu:
+{
+  "type": "run_command",
+  "command": "python3 - << 'PYEOF'\nfrom reportlab.lib.pagesizes import A4\nfrom reportlab.pdfgen import canvas\nfrom reportlab.pdfbase import pdfmetrics\nfrom reportlab.pdfbase.ttfonts import TTFont\nimport os\n\n# Polskie znaki - znajdź czcionkę TTF\nfont_name = 'Helvetica'\nfor p in ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',\n          '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',\n          '/usr/share/fonts/TTF/DejaVuSans.ttf']:\n    if os.path.exists(p):\n        pdfmetrics.registerFont(TTFont('CustomFont', p))\n        font_name = 'CustomFont'\n        break\n\nc = canvas.Canvas('NAZWA_PLIKU.pdf', pagesize=A4)\nw, h = A4\n\n# Strona 1\nc.setFont(font_name, 16)\nc.drawString(50, h - 80, 'TYTUL_STRONY_1')\nc.setFont(font_name, 12)\nc.drawString(50, h - 120, 'TRESC_STRONY_1')\n\n# Strona 2\nc.showPage()\nc.setFont(font_name, 16)\nc.drawString(50, h - 80, 'TYTUL_STRONY_2')\nc.setFont(font_name, 12)\nc.drawString(50, h - 120, 'TRESC_STRONY_2')\n\nc.save()\nprint('PDF zapisany: NAZWA_PLIKU.pdf')\nPYEOF"
+}
+
+PROFESJONALNY PDF (tabele, wiele stron, nagłówki) — używaj Platypus:
+{
+  "type": "run_command",
+  "command": "python3 - << 'PYEOF'\nfrom reportlab.lib.pagesizes import A4\nfrom reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak\nfrom reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle\nfrom reportlab.lib import colors\nfrom reportlab.lib.units import cm\nfrom reportlab.pdfbase import pdfmetrics\nfrom reportlab.pdfbase.ttfonts import TTFont\nimport os\n\n# Polskie znaki\nfont = 'Helvetica'\nfor p in ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',\n          '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf']:\n    if os.path.exists(p):\n        pdfmetrics.registerFont(TTFont('CF', p))\n        pdfmetrics.registerFont(TTFont('CF-Bold', p.replace('Regular', 'Bold').replace('Sans.ttf', 'Sans-Bold.ttf')))\n        font = 'CF'\n        break\n\ndoc = SimpleDocTemplate('NAZWA.pdf', pagesize=A4,\n    rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)\nstyles = getSampleStyleSheet()\nif font != 'Helvetica':\n    styles['Title'].fontName = font\n    styles['Normal'].fontName = font\n    styles['Heading1'].fontName = font\n\nstory = []\nstory.append(Paragraph('Tytuł dokumentu', styles['Title']))\nstory.append(Spacer(1, 0.5*cm))\nstory.append(Paragraph('Treść akapitu tutaj.', styles['Normal']))\nstory.append(PageBreak())\nstory.append(Paragraph('Strona 2', styles['Heading1']))\n\ndoc.build(story)\nprint('PDF zapisany: NAZWA.pdf')\nPYEOF"
+}
+
+ZASADY:
+1. NIE twórz oddzielnego pliku .py - używaj heredoc lub python3 -c inline.
+2. ZAWSZE rejestruj czcionkę TTF dla polskich znaków. Bez tego ą/ę/ó nie będą działać.
+3. Nazwa pliku PDF powinna być sensowna (np. hello_world.pdf, raport.pdf, NAZWA_z_polecenia.pdf).
+4. Po run_command zawsze zwróć message z potwierdzeniem i ścieżką do pliku.
+5. Jeśli reportlab nie jest zainstalowany - zainstaluj go w tej samej iteracji przed generowaniem:
+   "python3 -c 'import reportlab' 2>/dev/null || pip3 install reportlab --break-system-packages -q && python3 - << 'PYEOF'\n..."
+
+PRZYKŁAD - "stwórz PDF z hello world na dwóch stronach":
+{
+  "actions": [
+    {
+      "type": "run_command",
+      "command": "python3 -c 'import reportlab' 2>/dev/null || pip3 install reportlab --break-system-packages -q"
+    },
+    {
+      "type": "run_command",
+      "command": "python3 - << 'PYEOF'\nfrom reportlab.lib.pagesizes import A4\nfrom reportlab.pdfgen import canvas\nfrom reportlab.pdfbase import pdfmetrics\nfrom reportlab.pdfbase.ttfonts import TTFont\nimport os\n\nfont_name = 'Helvetica'\nfor p in ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',\n          '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf']:\n    if os.path.exists(p):\n        pdfmetrics.registerFont(TTFont('CF', p))\n        font_name = 'CF'\n        break\n\nc = canvas.Canvas('hello_world.pdf', pagesize=A4)\nw, h = A4\n\nc.setFont(font_name, 24)\nc.drawString(50, h/2, 'Hello World')\nc.drawString(50, h/2 - 40, 'Strona 1')\n\nc.showPage()\nc.setFont(font_name, 24)\nc.drawString(50, h/2, 'Hello World')\nc.drawString(50, h/2 - 40, 'Strona 2')\n\nc.save()\nprint('Gotowe: hello_world.pdf')\nPYEOF"
+    }
+  ],
+  "message": "Stworzono hello_world.pdf z napisem Hello World na dwóch stronach."
+}

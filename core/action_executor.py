@@ -367,25 +367,39 @@ class ActionExecutor:
         if t == "list_files":
             pattern = action.get("pattern", "*")
             recursive = action.get("recursive", False)
-            
+            explicit_path = action.get("path")
+
+            # Poprawka: jeśli model podał osobne pole "path" (katalog),
+            # połącz go z pattern żeby fs.list_files dostał pełną ścieżkę glob.
+            # Bez tego model pisał {"path": "/home/paffcio/Pobrane", "pattern": "*.mp4"}
+            # a executor ignorował path i szukał *.mp4 w cwd projektu.
+            if explicit_path:
+                import os as _os
+                ep = str(explicit_path).rstrip("/")
+                # Jeśli pattern to "*" lub nie zawiera separatora — złącz z path
+                if pattern == "*" or _os.sep not in pattern:
+                    pattern = ep + "/" + pattern
+                # Jeśli pattern już jest ścieżką bezwzględną — zostaw jak jest
+                # (model mógł podać pełny glob w pattern zamiast w path)
+
             # Zabezpieczenie: jeśli pattern to konkretna nazwa pliku (bez wildcard),
             # przekieruj do read_file zamiast list_files (częsty błąd modelu)
-            if "*" not in pattern and "?" not in pattern and not os.path.isdir(
+            if "*" not in pattern and "?" not in pattern and not os.path.isdir(pattern) and not os.path.isdir(
                 os.path.join(str(self.fs.cwd), pattern)
             ):
                 # Wygląda jak konkretny plik, nie glob pattern
-                potential_path = os.path.join(str(self.fs.cwd), pattern)
+                potential_path = pattern if os.path.isabs(pattern) else os.path.join(str(self.fs.cwd), pattern)
                 if os.path.isfile(potential_path):
                     try:
-                        content = self.fs.read_file(pattern)
+                        content = self.fs.read_file(potential_path)
                         return {
                             "type": "file_content",
-                            "path": pattern,
+                            "path": potential_path,
                             "content": content
                         }
                     except Exception as e:
-                        return f"[BŁĄD] Nie udało się odczytać pliku {pattern}: {e}"
-            
+                        return f"[BŁĄD] Nie udało się odczytać pliku {potential_path}: {e}"
+
             try:
                 files = self.fs.list_files(pattern, recursive)
                 return {
@@ -466,10 +480,15 @@ class ActionExecutor:
             patches   = action.get("patches")    # Format A (lista)
             diff_text = action.get("diff", "")  # Format B (string)
 
+            # Pustą listę traktuj jak brak danych
+            if isinstance(patches, list) and len(patches) == 0:
+                patches = None
+
             if not patches and not diff_text:
                 return (
                     "[BŁĄD] patch_file wymaga pola 'patches' (lista bloków) "
-                    "lub 'diff' (string SEARCH/REPLACE)"
+                    "lub 'diff' (string z blokami SEARCH/REPLACE)\n"
+                    "Przykład: {\"patches\": [{\"search\": [\"stary tekst\"], \"replace\": [\"nowy tekst\"]}]}"
                 )
 
             dry_run = action.get("dry_run", self.dry_run)
@@ -591,12 +610,17 @@ class ActionExecutor:
                     timeout=timeout
                 )
 
+                # Limit wyjścia — konfigurowalne (domyślnie 4000).
+                # 500 ucinało wyniki find/snap/df, model dostawał niekompletne dane.
+                _out_limit = self.config.get("execution", {}).get("command_output_limit", 4000)
+                _stdout = result.stdout
+                _stderr = result.stderr
                 output = {
                     "type": "command_result",
                     "command": command,
                     "returncode": result.returncode,
-                    "stdout": result.stdout[:500],
-                    "stderr": result.stderr[:500],
+                    "stdout": _stdout[:_out_limit] + (" …[ucięto]") * (len(_stdout) > _out_limit),
+                    "stderr": _stderr[:_out_limit] + (" …[ucięto]") * (len(_stderr) > _out_limit),
                     "risk": risk.value,
                     "risk_reason": risk_reason
                 }
@@ -1072,7 +1096,10 @@ class ActionExecutor:
 
             engine = self.agent.web_search_engine
 
-            if not engine.is_domain_allowed(url):
+            # URL podany wprost przez usera w zapytaniu = implicit zgoda, pomijamy whitelist
+            user_provided = action.get("user_provided_url", False)
+
+            if not user_provided and not engine.is_domain_allowed(url):
                 import urllib.parse
                 domain = urllib.parse.urlparse(url).netloc
                 return {
@@ -1125,7 +1152,18 @@ class ActionExecutor:
 
             overwrite = action.get("overwrite", False)
 
-            result = apply_template(template_name, dest_path, variables, overwrite=overwrite)
+            try:
+                result = apply_template(template_name, dest_path, variables, overwrite=overwrite)
+            except (UnicodeDecodeError, UnicodeEncodeError) as e:
+                # Binarny plik w szablonie (np. .pyc) - ignoruj i kontynuuj
+                return {
+                    "type": "template_applied",
+                    "template": template_name,
+                    "dest": str(dest_path),
+                    "created": [],
+                    "skipped": [],
+                    "message": f"Szablon '{template_name}' pominięty (plik binarny): {e}",
+                }
 
             if not result["success"]:
                 return f"[BŁĄD] use_template: {result['error']}"
@@ -1144,3 +1182,25 @@ class ActionExecutor:
                 "skipped": result["skipped"],
                 "message": " | ".join(summary_parts) if summary_parts else "Szablon zastosowany",
             }
+
+        if t == "save_memory":
+            # Akcja zapisu faktu do pamięci globalnej
+            content = (
+                action.get("content")
+                or action.get("fact")
+                or action.get("note")
+                or action.get("text")
+                or ""
+            ).strip()
+            if not content:
+                return "[BŁĄD] save_memory wymaga pola 'content' z treścią faktu"
+
+            category = action.get("category", "general")
+            gm = getattr(self.agent, "global_memory", None)
+            if gm is None:
+                return "[BŁĄD] Pamięć globalna niedostępna"
+
+            fact = gm.add(content, category)
+            self.ui.success(f"💾 Zapamiętano [{fact['id']}]: {fact['content']}")
+            return {"type": "memory_saved", "id": fact["id"], "content": fact["content"]}
+

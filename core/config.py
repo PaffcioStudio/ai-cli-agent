@@ -43,7 +43,12 @@ def get_default_config():
             "auto_confirm_safe_commands": True,
             "auto_confirm_modify_under": 3,
             "timeout_seconds": 120,
-            "shell": "/bin/bash"
+            "shell": "/bin/bash",
+            "notify_on_confirm": True,   # Powiadomienie systemowe gdy wymagane potwierdzenie akcji
+            # Maksymalna liczba znaków stdout/stderr zwracana modelowi.
+            # 500 (stara wartość) ucinało wyniki find/snap/df.
+            # Zwiększ jeśli pracujesz z komendami generującymi dużo wyjścia.
+            "command_output_limit": 4000
         },
         
         "project": {
@@ -64,7 +69,20 @@ def get_default_config():
             "enabled": True,          # Włącz/wyłącz RAG
             "top_k": 4,               # Ile fragmentów wiedzy dołączyć do promptu
             "min_score": 0.1,         # Minimalne podobieństwo (0.0–1.0)
-            "embed_model": ""         # Zostaw puste = użyj embed_model z głównej sekcji
+            "embed_model": "",        # Zostaw puste = użyj embed_model z głównej sekcji
+            "show_sources": False,    # Pokaż źródła RAG pod odpowiedzią (True = włączone)
+            "max_per_file": 2         # Maks. fragmentów z jednego pliku (zapobiega dominacji)
+        },
+
+        "memory": {
+            "auto_extract": True,     # Automatycznie wyciągaj fakty z rozmów i zapisuj do pamięci
+            "show_saved":   True,     # Pokazuj "💾 Zapamiętano" po każdym auto-zapisie
+        },
+
+        "conversation": {
+            "save_history": True,
+            "resume_prompt": True,
+            "max_saved_messages": 40
         },
 
         # Smart routing i fallback (ustawiane przez `ai model`)
@@ -189,17 +207,28 @@ def load_config():
     
     # Walidacja i naprawa
     config, repairs = validate_and_repair_config(config)
-    
+
     if repairs:
-        print("[INFO] Naprawiono konfigurację:")
-        for repair in repairs:
-            print(f"  • {repair}")
-        print()
-        print("[INFO] Rozważ ponowną instalację dla pełnej konfiguracji:")
-        print("  ~/.local/share/ai-cli-agent/install-cli.sh")
-        print()
+        # Rozróżnij drobne uzupełnienia (nowe domyślne opcje) od poważnych napraw
+        major_keywords = ("Odtworzono brakujące pole", "Config nie jest obiektem", "Naprawiono typ")
+        major = [r for r in repairs if any(k in r for k in major_keywords)]
+        minor = [r for r in repairs if r not in major]
+
+        if minor:
+            # Cicha aktualizacja – nowe opcje dorzucone do configu, nie trzeba tego ogłaszać
+            pass
+
+        if major:
+            print("[INFO] Naprawiono konfigurację:")
+            for repair in major:
+                print(f"  • {repair}")
+            print()
+            print("[INFO] Rozważ ponowną instalację dla pełnej konfiguracji:")
+            print("  ~/.local/share/ai-cli-agent/install-cli.sh")
+            print()
+
         save_config(config)
-    
+
     return config
 
 def save_config(config):

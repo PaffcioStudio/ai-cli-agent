@@ -1,3 +1,15 @@
+"""
+agent.py – AIAgent (refaktoryzacja).
+
+Główna logika podzielona na mikro-moduły:
+  - core/agent_prompts.py    – budowanie promptów
+  - core/agent_runner.py     – pętla iteracji run()
+  - core/agent_global.py     – obsługa trybu globalnego
+  - core/agent_state.py      – stany agenta
+
+Ten plik zawiera: __init__, właściwości lazy, metody pomocnicze,
+_execute_with_transaction, _needs_confirm i fasadę delegacji.
+"""
 import json
 import os
 import re
@@ -8,6 +20,7 @@ from typing import List, Dict, Optional
 from classification.command_classifier import CommandClassifier, CommandRisk as CmdRisk
 from classification.intent_classifier import IntentClassifier, Intent
 from core.conversation_state import ConversationState
+from core.conversation_history import ConversationHistory
 from core.json_parser import JSONParser
 from core.ollama import OllamaClient, OllamaConnectionError
 from planning.action_planner import ActionPlanner
@@ -53,6 +66,8 @@ class AIAgent:
         
         # Conversation state
         self.conversation = ConversationState(max_history=10)
+        # Persystentna historia rozmów (zapis na dysk)
+        self.conv_history: ConversationHistory | None = None
         
         # Globalna pamięć persystentna
         self.global_memory = GlobalMemory()
@@ -136,7 +151,13 @@ class AIAgent:
         )
         
         self.logger.info(f"AI Agent initialized (mode: project)")
-        
+
+        # Persystentna historia rozmów per projekt
+        self.conv_history = ConversationHistory(
+            project_root=self.project_root,
+            config=config
+        )
+
         self.project_analyzed = False
         if config.get('project', {}).get('auto_analyze_on_start', True):
             if self._is_project_reasonable_size():
@@ -385,14 +406,22 @@ Projekt: {self.project_root}
             kb = self.kb
             if not kb.is_ready:
                 return ''
-            top_k = rag_cfg.get('top_k', 4)
-            results = kb.search(user_input, top_k=top_k)
+            top_k        = rag_cfg.get('top_k', 4)
+            min_score    = rag_cfg.get('min_score', 0.1)
+            max_per_file = rag_cfg.get('max_per_file', 2)
+            results      = kb.search(user_input, top_k=top_k, min_score=min_score, max_per_file=max_per_file)
             if not results:
                 return ''
             context = build_rag_context_section(results, kb)
             if self.logger:
                 sources = [r.file_path for r in results]
                 self.logger.debug(f'RAG: {len(results)} wyników dla: {user_input!r} | źródła: {sources}')
+            # show_sources – wyświetl źródła w terminalu jeśli włączone w config
+            if rag_cfg.get('show_sources', False):
+                from ui_layer.ui import Colors
+                print(f'\n{Colors.GRAY}  📚 RAG [{len(results)}]: ' +
+                      ', '.join(r.file_path.split('knowledge/')[-1] for r in results) +
+                      f'{Colors.RESET}')
             return context
         except Exception as e:
             if self.logger:
@@ -426,12 +455,9 @@ Projekt: {self.project_root}
     def _json_reminder(self) -> str:
         """
         Zwróć suffix przypominający o formacie JSON.
-        Używany dla lokalnych modeli które ignorują system prompt.
-        Dla modeli cloud — pusty string (niepotrzebny).
+        Modele thinking (qwen3) i cloud mają tendencję do odpowiadania swobodnym
+        tekstem zamiast JSON - muszą dostawać przypomnienie tak samo jak lokalne.
         """
-        is_cloud = ':cloud' in self.client.chat_model
-        if is_cloud:
-            return ""
         return (
             "\n\n[WAŻNE: Odpowiedz WYŁĄCZNIE poprawnym JSON. "
             "Żadnego tekstu przed ani po. Żadnego markdown. "
@@ -731,7 +757,7 @@ INFORMACJE O AI CLI:
             return
         
         if not self.memory.data.get("project_type"):
-            self.ui.verbose("Analizuję projekt (pierwsza wizyta)...")
+            self.ui.verbose("Analizuję projekt...")
             analysis = self.analyzer.analyze()
             
             if analysis.get("type"):
@@ -741,579 +767,19 @@ INFORMACJE O AI CLI:
         
         self.project_analyzed = True
 
-    def run(self, user_input):
-        # Reset execution state na początku każdej nowej komendy
-        self.execution_failed = False
-        self.last_failed_command = None
-        
-        # Log user input
-        if self.logger:
-            self.logger.debug(f"User input: {user_input}")
-        
-        # System queries (czas, data)
-        system_answer = GlobalMode.handle_system_query(user_input)
-        if system_answer:
-            self.ui.success(system_answer)
-            self.conversation.add_user_message(user_input)
-            self.conversation.add_ai_message(system_answer)
-            return
-        
-        # Pending confirmation
-        if self.conversation.has_pending_confirmation():
-            if self.conversation.is_confirmation_response(user_input):
-                decision = self.conversation.get_confirmation_decision(user_input)
-                
-                if decision:
-                    pending_actions = self.conversation.get_pending_actions()
-                    if pending_actions:
-                        self._execute_pending_actions(pending_actions)
-                    self.conversation.clear_pending_confirmation()
-                else:
-                    self.ui.warning("Operacja anulowana")
-                    self.conversation.clear_pending_confirmation()
-                
-                return
-        
-        # Tryb global
-        if self.global_mode:
-            self._run_global_mode(user_input)
-            return
-        
-        if self.config.get('project', {}).get('auto_analyze_on_change', True):
-            if self._is_project_reasonable_size():
-                self._ensure_project_analyzed()
-        
-        if self._is_project_question(user_input):
-            self._handle_project_question()
-            return
-        
-        self.conversation.add_user_message(user_input)
-        
-        # ─── Web Search auto-trigger ──────────────────────────────────────────
-        # Jeśli web_search.enabled=true i wykryto frazę wyzwalającą, wykonaj
-        # wyszukiwanie i wstrzyknij wyniki jako kontekst do promptu AI.
-        web_search_context = ""
-        if self.config.get("web_search", {}).get("enabled", False):
-            if self.config.get("web_search", {}).get("auto_trigger", True):
-                engine = self.web_search_engine
-                if engine.detect_trigger(user_input):
-                    self.ui.verbose("🌐 Wykryto frazę wyszukiwania – szukam w internecie...")
-                    try:
-                        results = engine.search(user_input, max_results=engine._ws_config.get("max_results", 5))
-                        if results:
-                            web_search_context = (
-                                "\n\n=== WYNIKI WYSZUKIWANIA (auto-trigger) ===\n"
-                                + engine.format_results_for_prompt(results)
-                                + "\n=== KONIEC WYNIKÓW ===\n"
-                                + "Użyj powyższych wyników aby odpowiedzieć na pytanie użytkownika.\n"
-                            )
-                            if self.logger:
-                                self.logger.info(f"Web search auto-triggered: {user_input!r}, {len(results)} results")
-                    except (WebSearchError, RateLimitError) as e:
-                        self.ui.verbose(f"⚠ Web search: {e}")
-                    except Exception as e:
-                        self.ui.verbose(f"⚠ Web search error: {e}")
-        # ─────────────────────────────────────────────────────────────────────
-        
-        # ─── RAG – wyszukaj w bazie wiedzy ───────────────────────────────────────
-        rag_context = self._get_rag_context(user_input)
-        # ─────────────────────────────────────────────────────────────────────
 
-        # ─── Wykryj i wyciągnij ścieżki obrazów z user_input ───────────────
-        _img_exts = ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tiff')
-        _has_image = any(ext in user_input.lower() for ext in _img_exts)
-        _image_paths = self._extract_image_paths(user_input) if _has_image else []
-        # ─────────────────────────────────────────────────────────────────────
-
-        # Najpierw rozpoznaj intent
-        intent_result = IntentClassifier.classify(user_input)
-        
-        self.ui.verbose(f"Intent: {intent_result.intent.value} ({intent_result.confidence.value})")
-        self.ui.verbose(f"Reasoning: {intent_result.reasoning}")
-        
-        conversation_context = self.conversation.format_context_for_prompt()
-        
-        # Dodaj intent do promptu
-        intent_context = f"""
-
-    ====================
-    ROZPOZNANY INTENT
-    ====================
-
-    Intent: {intent_result.intent.value}
-    Confidence: {intent_result.confidence.value}
-    Scope: {intent_result.scope}
-    Reasoning: {intent_result.reasoning}
-
-    Suggested actions: {', '.join(IntentClassifier.get_suggested_actions(intent_result.intent, intent_result.scope))}
-
-    IMPORTANT: Your response should align with this detected intent.
-    """
-        
-        messages = [
-            {"role": "system", "content": self._build_system_prompt(user_input) + conversation_context + intent_context + web_search_context + rag_context},
-            {"role": "user", "content": user_input + self._json_reminder()}
-        ]
-
-        # ─── Formalny kontekst iteracji ───────────────────────────────────────
-        _iter_ctx = IterationContext(max_iterations=8)
-        _stagnation = StagnationDetector()
-
-        while _iter_ctx.tick():
-            iteration = _iter_ctx.current_iteration - 1  # 0-based dla kompatybilności
-            # Reset execution state przed każdą iteracją
-            self.execution_failed = False
-            self.last_failed_command = None
-            
-            self.ui.spinner_start("Analizuję...")
-
-            if self.logger:
-                self.logger.debug(
-                    f"[{AgentState.THINKING.value}] iter={_iter_ctx.current_iteration} "
-                    f"remaining={_iter_ctx.remaining_iterations}"
-                )
-
-            try:
-                timeout = self.config.get('execution', {}).get('timeout_seconds', 30)
-                raw = self.client.chat(messages, user_input=user_input, has_image=_has_image, image_paths=_image_paths)
-
-            except OllamaConnectionError as e:
-                self.ui.spinner_stop()
-                self.ui.error("Nie można połączyć się z Ollamą!")
-                self.ui.verbose(f"Serwer: {e.host}:{e.port}")
-                print()
-                print(e.reason)
-
-                if self.logger:
-                    self.logger.error(f"Ollama connection failed: {e.reason}")
-
-                return
-
-            except KeyboardInterrupt:
-                self.ui.spinner_stop()
-                print()
-                self.ui.warning("Przerwano przez użytkownika")
-                return
-
-            except Exception as e:
-                self.ui.spinner_stop()
-                self.ui.error(f"Błąd komunikacji z modelem: {e}")
-
-                if self.logger:
-                    self.logger.error(f"Model communication error: {e}", exc_info=True)
-
-                return
-
-            finally:
-                self.ui.spinner_stop()
-
-            if self.config.get('debug', {}).get('log_model_raw_output', False):
-                print(f"[DEBUG] Model response: {raw[:200]}")
-                if self.logger:
-                    self.logger.debug(f"Model raw output: {raw[:500]}")
-
-            # Model czasem zwraca tekst poza JSONem
-            if not raw or not raw.strip():
-                self.ui.error("Model zwrócił pustą odpowiedź")
-                self.ui.verbose("Spróbuj przeformułować pytanie lub użyj 'ai help'")
-                return
-
-            try:
-                # Wyciągnij czysty JSON
-                data = self._extract_json_or_wrap(raw)
-            except Exception as e:
-                self.ui.error(f"Błąd parsowania JSON: {e}")
-                self.ui.verbose(f"Surowa odpowiedź: {raw[:200]}")
-                
-                if self.logger:
-                    self.logger.error(f"JSON parse error: {e}")
-                    self.logger.debug(f"Raw response: {raw}")
-                    self.logger.log_model_response(user_input, raw, error=str(e))
-                
-                if self.config.get('debug', {}).get('save_failed_responses', True):
-                    if self.fs:
-                        failed_file = Path(self.fs.cwd) / ".ai-failed-response.txt"
-                        try:
-                            with open(failed_file, 'w') as f:
-                                f.write(raw)
-                            self.ui.verbose(f"Zapisano błędną odpowiedź do {failed_file}")
-                        except Exception:
-                            pass
-                
-                return
-
-            if self.plan_only and data.get("plan"):
-                self.ui.section("PLAN DZIAŁANIA")
-                for i, step in enumerate(data["plan"], 1):
-                    self.ui.success(f"{i}. {step}")
-                return
-
-            if data.get("message") and not data.get("actions"):
-                # Krok 1: Sprawdź czy model opisuje edycję istniejącego pliku.
-                # Jeśli tak — zamiast rescue, wczytaj ten plik i kontynuuj iterację.
-                _file_injected = self._inject_existing_file_if_needed(
-                    user_input, data["message"], messages
-                )
-                if _file_injected:
-                    if self.logger:
-                        self.logger.info(
-                            f"File injected for edit: {_file_injected} — kontynuuję iterację"
-                        )
-                    # Dodaj odpowiedź modelu do historii i idź na następną iterację
-                    messages.append({"role": "assistant", "content": raw})
-                    continue
-
-                # Krok 2: Sprawdź czy message zawiera bloki kodu — jeśli tak, zamień na create_file
-                rescued = self._rescue_code_from_message(data["message"])
-                if rescued:
-                    if self.logger:
-                        self.logger.log_model_response(user_input, raw, parsed=rescued, rescued=True)
-                        self.logger.info(f"Rescued code from message: {[a['path'] for a in rescued.get('actions', [])]}")
-                    data = rescued
-                    # Nie returnuj — przejdź do wykonania akcji poniżej
-                else:
-                    if self.logger:
-                        self.logger.log_model_response(user_input, raw, parsed=data)
-                        self.logger.log_session_turn(user_input, data["message"])
-                    self.ui.ai_message(data["message"])
-                    self.conversation.add_ai_message(data["message"])
-                    # Auto-wyciągnij fakty z rozmowy
-                    saved = self.global_memory.auto_extract_and_save(user_input, data["message"])
-                    for f in saved:
-                        self.ui.success(f"💾 Zapamiętano [{f['id']}]: {f['content']}")
-                    return
-
-            actions = data.get("actions", [])
-
-            if not actions:
-                if data.get("message"):
-                    self.ui.ai_message(data["message"])
-                    self.conversation.add_ai_message(data["message"])
-                    return
-
-                self.ui.error("Model nie zwrócił ani akcji, ani odpowiedzi.")
-
-                # Zaloguj do pliku — surowy input, surowa odpowiedź, sparsowany JSON
-                if self.logger:
-                    self.logger.log_model_response(user_input, raw, parsed=data, error="empty_response")
-                    self.logger.log_session_turn(
-                        user_input,
-                        ai_summary=f"[BŁĄD] Model zwrócił pusty JSON. raw={raw!r}"
-                    )
-                    self.logger.error(
-                        f"Model zwrócił pusty JSON. user_input={user_input!r} raw={raw!r}"
-                    )
-
-                return
-
-            max_actions = self.config.get('behavior', {}).get('max_actions_per_run', 10)
-            if len(actions) > max_actions:
-                self.ui.warning(f"Liczba akcji ({len(actions)}) przekracza limit ({max_actions})")
-                self.ui.warning("Rozważ podzielenie zadania na mniejsze części")
-                if not self.ui.confirm_actions():
-                    return
-
-            valid, errors = ActionValidator.validate(actions)
-            if not valid:
-                self.ui.error("Akcje zawierają błędy:")
-                for err in errors:
-                    self.ui.error(f"  • {err}")
-                return
-            
-            if self.capabilities:
-                caps_valid, caps_errors = self.capabilities.validate_actions(actions)
-                if not caps_valid:
-                    self.ui.error("Akcje naruszają ograniczenia projektu:")
-                    for err in caps_errors:
-                        self.ui.error(f"  • {err}")
-                    
-                    for action in actions:
-                        suggestion = self.capabilities.suggest_enable(action.get("type"))
-                        if suggestion:
-                            print()
-                            self.ui.verbose(suggestion)
-                            break
-                    
-                    return
-            
-            # Walidacja planu
-            action_plan = ActionPlanner.create_plan(intent_result, actions)
-            
-            if not action_plan.is_valid():
-                self.ui.error("Plan zawiera błędy krytyczne:")
-                print(ActionPlanner.format_plan_summary(action_plan))
-                return
-            
-            # Optymalizuj kolejność
-            actions = ActionPlanner.optimize_order(actions)
-
-            risk_summary = ActionValidator.get_risk_summary(actions)
-            self.ui.section(f"Akcje do wykonania ({len(actions)})")
-            print(risk_summary)
-            
-            # NOWE: Pokaż katalog projektu ZAWSZE
-            if self.project_root:
-                print()
-                self.ui.success(f"📁 Katalog projektu: {self.project_root}")
-            
-            print()
-
-            for i, action in enumerate(actions, 1):
-                action_desc = self._describe_action(action)
-                self.ui.action_preview(i, action_desc)
-            
-            if self.impact:
-                impact_report = self.impact.analyze_impact(actions)
-                
-                if impact_report["severity"] in ["medium", "high", "critical"]:
-                    print()
-                    self.ui.section("Analiza wpływu zmian")
-                    print(self.impact.format_impact_report(impact_report))
-            
-            if self.semantic:
-                semantic_decision = self.semantic.detect_semantic_change(actions, user_input)
-                
-                if semantic_decision:
-                    print()
-                    self.ui.section("Wykryto decyzję semantyczną")
-                    self.ui.success(f"{semantic_decision.type}: {semantic_decision.old} → {semantic_decision.new}")
-                    
-                    suggestions = self.semantic.suggest_related_changes(semantic_decision)
-                    if suggestions:
-                        self.ui.verbose("Sugerowane dodatkowe zmiany:")
-                        for s in suggestions[:3]:
-                            self.ui.verbose(f"  • {s}")
-                    
-                    self.semantic.add_decision(semantic_decision)
-
-            needs_confirm = self._needs_confirm(actions)
-            
-            if needs_confirm and not self.auto_confirm and not self.plan_only:
-                if not self.ui.confirm_actions():
-                    self.ui.warning("Operacja anulowana przez użytkownika")
-                    return
-
-            if not self.plan_only:
-                self.ui.spinner_start("Wykonywanie akcji...")
-
-            if self.logger:
-                self.logger.info(
-                    f"[{AgentState.EXECUTING.value}] "
-                    f"actions={len(actions)} iter={_iter_ctx.current_iteration}"
-                )
-
-            # Wykonaj w transakcji
-            results = self._execute_with_transaction(actions)
-            
-            if not self.plan_only:
-                self.ui.spinner_stop()
-
-            intent = self._extract_intent_from_data(data, user_input, actions)
-            
-            if self.memory:
-                self.memory.update_from_actions(actions, user_input, intent=intent)
-            
-            # LOG OPERATION (po wykonaniu akcji)
-            if self.logger and actions and not self.plan_only:
-                self.logger.log_operation(
-                    user_input=user_input,
-                    actions=actions,
-                    results=results,
-                    intent=intent
-                )
-                self.logger.log_model_response(user_input, raw, parsed=data)
-                ai_summary = data.get("message", f"{len(actions)} akcji: " + ", ".join(a.get("type","?") for a in actions[:3]))
-                self.logger.log_session_turn(user_input, ai_summary, actions=actions)
-
-            # Sprawdź czy był rollback transakcji
-            had_rollback = any(
-                isinstance(r, dict) and r.get("type") == "transaction_rolled_back"
-                for r in results
-            )
-
-            if actions and not self.plan_only:
-                self.ui.section("Gotowe")
-                self._summarize_results(actions, results)
-            
-            if data.get("message"):
-                print()
-                if had_rollback:
-                    if self.logger:
-                        self.logger.warning(
-                            f"[{AgentState.FAILED.value}] reason={FailedReason.TRANSACTION_ROLLBACK.value} "
-                            f"iter={_iter_ctx.current_iteration}"
-                        )
-                    # Rollback = operacja NIEPOWIODŁA SIĘ — nie drukuj zielonego komunikatu
-                    self.ui.warning("⚠ Operacja nie powiodła się (rollback) — patrz błędy powyżej.")
-                    self.ui.verbose(f"AI sugerowało: {data['message']}")
-                else:
-                    if self.logger:
-                        self.logger.info(
-                            f"[{AgentState.DONE.value}] reason={DoneReason.MODEL_MESSAGE.value} "
-                            f"iter={_iter_ctx.current_iteration}"
-                        )
-                    self.ui.ai_message(data["message"])
-
-            # Sprawdz czy trzeba kolejnej iteracji.
-            # Jesli AI wyslalo message = zadanie ukonczone -> wyjdz z petli.
-            # Kontynuuj TYLKO gdy wyniki zawieraja dane do dalszego przetworzenia.
-            if data.get("message"):
-                return
-
-            needs_next = self._results_need_followup(results)
-            if not needs_next:
-                if self.logger:
-                    self.logger.info(
-                        f"[{AgentState.DONE.value}] reason={DoneReason.NO_FOLLOWUP_NEEDED.value} "
-                        f"{_iter_ctx.summary()}"
-                    )
-                return
-
-            # Zapisz akcje w kontekście iteracji
-            _iter_ctx.record_actions(actions)
-
-            # ── Stagnation detection ──────────────────────────────────────
-            is_stagnant, stagnation_reason = _stagnation.check(_iter_ctx)
-            if is_stagnant:
-                self.ui.warning(f"⚠ Wykryto zapętlenie: {stagnation_reason}")
-                if self.logger:
-                    self.logger.warning(
-                        f"[{AgentState.FAILED.value}] reason={FailedReason.STAGNATION.value} "
-                        f"{stagnation_reason} | {_iter_ctx.summary()}"
-                    )
-                return
-
-            if self.logger:
-                self.logger.debug(
-                    f"[{AgentState.THINKING.value}] next_iter={_iter_ctx.current_iteration + 1} "
-                    f"{_iter_ctx.summary()} force_action={_iter_ctx.should_force_action}"
-                )
-
-            # Dodaj skrócone wyniki do historii (oszczędność tokenów)
-            self._append_iteration_messages(messages, raw, actions, results,
-                                            force_action=_iter_ctx.should_force_action)
-
-        # Wyszliśmy z while przez wyczerpanie _iter_ctx.tick()
-        if self.logger:
-            self.logger.warning(
-                f"[{AgentState.DONE.value}] reason={DoneReason.MAX_ITERATIONS.value} "
-                f"{_iter_ctx.summary()}"
-            )
-        self.ui.verbose(f"(osiągnięto limit {_iter_ctx.max_iterations} iteracji)")
-
-    def _append_iteration_messages(self, messages, raw, actions, results, force_action=False):
-        """
-        Dodaj wyniki iteracji do historii - ale SKRÓTOWO.
-        Nie dołączamy pełnego raw (który zawiera cały system prompt echo),
-        tylko skrót akcji i wyników. Oszczędza ~60% tokenów w pętli.
-        force_action=True: wstrzyknij rozkaz "teraz wykonaj zadanie" gdy model
-        zbiera dane zbyt długo bez działania.
-        """
-
-        # Skrót odpowiedzi asystenta (tylko typy akcji, nie pełny JSON)
-        action_summary = [
-            {"type": a.get("type"), "path": a.get("path") or a.get("from", "")}
-            for a in actions
-        ]
-        messages.append({
-            "role": "assistant",
-            "content": json.dumps({"actions": action_summary}, ensure_ascii=False)
-        })
-
-        # Skrót wyników (max 300 znaków na wynik)
-        short_results = []
-        for r in results:
-            if isinstance(r, str):
-                short_results.append(r[:300])
-            elif isinstance(r, dict):
-                if r.get("type") == "file_content":
-                    content_str = r.get("content", "")
-                    path = r.get("path", "")
-                    # Małe pliki config/JSON przekazuj w całości - model musi je edytować
-                    is_config = any(path.endswith(ext) for ext in (".json", ".toml", ".yaml", ".yml", ".ini", ".cfg", ".env"))
-                    limit = len(content_str) if (is_config and len(content_str) < 8000) else 2000
-                    short_results.append({
-                        "type": "file_content",
-                        "path": path,
-                        "content": content_str[:limit],
-                        "instruction": "Masz treść pliku. TERAZ wykonaj żądaną modyfikację używając edit_file lub patch_file. NIE czytaj pliku ponownie."
-                    })
-                else:
-                    short_results.append(r)
-            else:
-                short_results.append(str(r)[:300])
-
-        # Jeśli model za długo tylko zbiera dane - wymuś działanie
-        if force_action:
-            short_results.append({
-                "type": "system_instruction",
-                "instruction": (
-                    "MASZ JUŻ WSZYSTKIE POTRZEBNE DANE. "
-                    "TERAZ wykonaj zadanie: utwórz pliki (create_file) i zakończ z message. "
-                    "NIE rób kolejnych run_command ani read_file. "
-                    "Jeśli brakuje ikony - użyj Icon=heroic jako fallback i TWÓRZ PLIKI."
-                )
-            })
-
-        messages.append({
-            "role": "user",
-            "content": json.dumps(short_results, ensure_ascii=False)
-        })
-
-        # Ogranicz całkowitą historię do MAX 6 wiadomości (3 pary)
-        # System prompt jest zawsze na początku - nie ruszamy go
-        system_msgs = [m for m in messages if m["role"] == "system"]
-        other_msgs  = [m for m in messages if m["role"] != "system"]
-
-        if len(other_msgs) > 6:
-            other_msgs = other_msgs[-6:]  # zostaw ostatnie 3 pary
-
-        messages.clear()
-        messages.extend(system_msgs)
-        messages.extend(other_msgs)
-
-    def _results_need_followup(self, results: list) -> bool:
-        """
-        Czy wyniki akcji wymagają kolejnej iteracji (AI musi je przeanalizować)?
-
-        Kontynuuj gdy:
-        - wynik to lista plików (file_list) - AI musi odpowiedzieć co znalazł
-        - wynik to wynik komendy (command_result) z wyjściem
-        - wynik to wynik semantic_search / web_search / clipboard
-        - wynik to file_content BEZ modyfikacji w tej samej partii
-
-        NIE kontynuuj gdy:
-        - w tej samej partii był wynik modyfikacji (edycja, tworzenie, usuwanie)
-        - brak wyników wymagających analizy
-        """
-        # Sprawdź czy w tej partii były wyniki modyfikacji
-        MODIFICATION_SIGNALS = ["Zaktualizowano", "Utworzono", "Usunięto", "Przeniesiono", "template_applied"]
-        has_modification = any(
-            isinstance(r, str) and any(sig in r for sig in MODIFICATION_SIGNALS)
-            for r in results
-        )
-        if has_modification:
-            return False
-
-        ANALYSIS_NEEDED = {"file_list", "semantic_result",
-                           "clipboard_content", "web_search_results", "web_scrape_result",
-                           "image_info_result"}
-
-        has_file_content = False
-
-        for r in results:
-            if isinstance(r, dict):
-                rtype = r.get("type", "")
-                if rtype == "file_content":
-                    has_file_content = True
-                elif rtype in ANALYSIS_NEEDED:
-                    return True
-                elif rtype == "command_result" and r.get("stdout", "").strip():
-                    return True
-            elif isinstance(r, str) and r.startswith("[BŁĄD]"):
-                return True
-
-        return has_file_content
+    def run(self, user_input: str):
+        """Deleguje do AgentRunnerMixin.run()."""
+        from core.agent_runner import AgentRunnerMixin
+        # Bind mixin methods dynamically (first call injects them)
+        if not hasattr(AIAgent, '_runner_injected'):
+            for name in dir(AgentRunnerMixin):
+                if name.startswith('_') or name == 'run':
+                    method = getattr(AgentRunnerMixin, name)
+                    if callable(method) and not hasattr(AIAgent, name):
+                        setattr(AIAgent, name, method)
+            AIAgent._runner_injected = True
+        return AgentRunnerMixin.run(self, user_input)
 
     def _execute_with_transaction(self, actions: List[Dict]) -> List:
         """
@@ -1350,7 +816,13 @@ INFORMACJE O AI CLI:
                             self.ui.verbose(f"Backup warning: {e}")
                 
                 # Wykonaj akcję
-                result = self.execute_action(action)
+                try:
+                    result = self.execute_action(action)
+                except (UnicodeDecodeError, UnicodeEncodeError) as e:
+                    # Binarny plik (np. .pyc w szablonie) — nie rollbackuj, tylko skip
+                    self.ui.warning(f"⚠ Akcja #{i} pominięta (plik binarny): {e}")
+                    results.append({"type": "skipped_binary", "reason": str(e)})
+                    continue
                 results.append(result)
                 
                 # Sprawdź czy nie ma błędu
@@ -1418,7 +890,7 @@ INFORMACJE O AI CLI:
             if self.config.get("web_search", {}).get("auto_trigger", True):
                 engine = self.web_search_engine
                 if engine.detect_trigger(user_input):
-                    self.ui.verbose("🌐 Wykryto frazę wyszukiwania – szukam...")
+                    self.ui.verbose("Wyszukiwanie w internecie...")
                     try:
                         results = engine.search(user_input, max_results=5)
                         if results:
@@ -1484,10 +956,13 @@ INFORMACJE O AI CLI:
                 else:
                     self.ui.ai_message(data["message"])
                     self.conversation.add_ai_message(data["message"])
-                    # Auto-wyciągnij fakty z rozmowy
-                    saved = self.global_memory.auto_extract_and_save(user_input, data["message"])
-                    for f in saved:
-                        self.ui.success(f"💾 Zapamiętano [{f['id']}]: {f['content']}")
+                    # Auto-wyciągnij fakty z rozmowy (jeśli włączone w config)
+                    mem_cfg = self.config.get("memory", {})
+                    if mem_cfg.get("auto_extract", True):
+                        saved = self.global_memory.auto_extract_and_save(user_input, data["message"])
+                        if mem_cfg.get("show_saved", True):
+                            for f in saved:
+                                self.ui.success(f"💾 Zapamiętano [{f['id']}]: {f['content']}")
 
             # Jeśli brak akcji - zakończ
             actions = data.get("actions", [])
@@ -1570,9 +1045,14 @@ INFORMACJE O AI CLI:
                 elif t in ("web_search", "web_scrape"):
                     result = self._execute_global_web_action(action)
                     action_results.append(result)
-                    
-                    # Wyświetl wyniki web search
-                    if isinstance(result, dict) and result.get("type") == "web_search_results":
+
+                    if not isinstance(result, dict):
+                        continue
+
+                    rtype = result.get("type", "")
+
+                    # web_search: wyświetl wyniki
+                    if rtype == "web_search_results":
                         for r in result.get("results", [])[:5]:
                             if not isinstance(r, dict):
                                 continue
@@ -1584,6 +1064,42 @@ INFORMACJE O AI CLI:
                             if snippet:
                                 print(f"  {snippet[:120]}")
                             print(f"  {url}\n")
+
+                    # web_scrape: pokaż tytuł i skrót
+                    elif rtype == "web_scrape_result":
+                        title   = result.get("title", "")
+                        success = result.get("success", False)
+                        md_len  = len(result.get("markdown", ""))
+                        if success:
+                            self.ui.verbose(f"  ✓ Pobrano: {title or action.get('url', '')} ({md_len} znaków)")
+                        else:
+                            self.ui.warning(f"  ✗ Scraping nieudany: {action.get('url', '')}")
+
+                    # web_scrape_blocked: domena spoza whitelist - powiedz o tym głośno
+                    elif rtype == "web_scrape_blocked":
+                        domain = result.get("domain", action.get("url", ""))
+                        self.ui.warning(
+                            f"  ✗ Domena zablokowana: {domain}\n"
+                            f"    Dodaj do whitelist: ai web-search domains add {domain}"
+                        )
+                        # Zastąp wynik czytelnym błędem żeby model mógł odpowiedzieć sensownie
+                        action_results[-1] = {
+                            "type": "web_scrape_blocked",
+                            "domain": domain,
+                            "message": (
+                                f"Domena '{domain}' jest poza whitelistą i scraping został zablokowany. "
+                                f"Użytkownik musi dodać ją komendą: ai web-search domains add {domain}"
+                            )
+                        }
+
+                    # web_search wyłączony
+                    elif rtype == "web_search_disabled":
+                        self.ui.warning(f"  ✗ Web search wyłączony. Włącz: ai web-search enable")
+
+                    # brakujące zależności
+                    elif rtype == "web_search_missing_deps":
+                        missing = result.get("missing", [])
+                        self.ui.warning(f"  ✗ Brak zależności: {', '.join(missing)}")
                 
                 elif t in ("create_file", "edit_file"):
                     from pathlib import Path
@@ -1764,7 +1280,11 @@ INFORMACJE O AI CLI:
                     dest_path = Path(dest).expanduser().resolve()
                     variables = dict(action.get("variables", {}))
                     variables.setdefault("AUTHOR", self.config.get("nick", "user"))
-                    result = apply_template(template_name, dest_path, variables, overwrite=action.get("overwrite", False))
+                    try:
+                        result = apply_template(template_name, dest_path, variables, overwrite=action.get("overwrite", False))
+                    except (UnicodeDecodeError, UnicodeEncodeError) as e:
+                        # Binarny plik w szablonie (np. .pyc) - pomiń bez rollbacku
+                        result = {"success": True, "created": [], "skipped": [], "error": None}
                     if result["success"]:
                         summary = f"Szablon '{template_name}' zastosowany w {dest_path} ({len(result['created'])} plików)"
                         print(f"  ✓ {summary}")
@@ -1782,7 +1302,7 @@ INFORMACJE O AI CLI:
             })
         
         # Koniec pętli - jeśli coś poszło nie tak
-        self.ui.verbose("(max iteracji osiągnięto)")
+        self.ui.verbose("Osiągnięto limit iteracji")
 
     def _execute_global_web_action(self, action: dict):
         """Wykonaj web_search lub web_scrape w trybie globalnym."""
@@ -1812,10 +1332,18 @@ INFORMACJE O AI CLI:
         
         elif t == "web_scrape":
             url = action.get("url", "")
-            if not engine.is_domain_allowed(url):
+            user_provided = action.get("user_provided_url", False)
+            if not user_provided and not engine.is_domain_allowed(url):
                 import urllib.parse
                 domain = urllib.parse.urlparse(url).netloc
-                return {"type": "web_scrape_blocked", "domain": domain}
+                return {
+                    "type": "web_scrape_blocked",
+                    "domain": domain,
+                    "message": (
+                        f"Domena '{domain}' nie jest na whitelist. "
+                        f"Dodaj: ai web-search domains add {domain}"
+                    )
+                }
             sr = engine.scrape(url)
             return {
                 "type": "web_scrape_result",

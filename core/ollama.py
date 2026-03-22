@@ -260,6 +260,7 @@ class OllamaClient:
                               for m in ["qwen3", "deepseek-r", "deepseek-v3", "r1", "marco-o1", "skywork-o1"])
 
             # Modele thinking NIE obsługują "format": "json" poprawnie
+            # Cloud modele też mogą ignorować format:json - lepiej nie wysyłać
             is_cloud = ':cloud' in effective_model
             use_json_format = not is_thinking and not is_cloud
 
@@ -285,8 +286,8 @@ class OllamaClient:
                 "stream": False,
             }
             
-            # Dla modeli thinking: wyłącz thinking w opcjach (szybciej, mniej tokenów)
-            if is_thinking:
+            # Dla modeli thinking i cloud: wyłącz thinking (szybciej, mniej tokenów, mniej odmów)
+            if is_thinking or is_cloud:
                 payload["options"] = {"think": False}
             
             if use_json_format:
@@ -304,7 +305,7 @@ class OllamaClient:
             response_content = response_data["message"]["content"]
 
             # Usuń thinking bloki jeśli model je zwrócił
-            if is_thinking and response_content:
+            if (is_thinking or is_cloud) and response_content:
                 response_content = self._strip_thinking(response_content)
 
             # Log API call
@@ -329,24 +330,40 @@ class OllamaClient:
             )
             is_timeout = isinstance(e, requests.exceptions.Timeout)
 
-            if (is_rate_limit or is_timeout) and self.router.fallback_model:
-                fb = self.router.fallback_model
-                if self.logger:
-                    self.logger.warning(f"Auto-fallback: {effective_model} → {fb} ({'rate limit' if is_rate_limit else 'timeout'})")
-                self.router.activate_fallback(duration_minutes=60)
+            if (is_rate_limit or is_timeout) and self.router.fallback_models:
                 reason_str = 'Rate limit (429)' if is_rate_limit else 'Timeout'
-                print(f"\n⚠  {reason_str} – przełączam na fallback: {fb} (60 min)")
-                # Ponów zapytanie z modelem fallback
-                try:
-                    r2 = requests.post(
-                        f"{self.base}/api/chat",
-                        json={"model": fb, "messages": messages, "stream": False},
-                        timeout=timeout,
-                    )
-                    r2.raise_for_status()
-                    return r2.json()["message"]["content"]
-                except Exception as e2:
-                    self._handle_connection_error(e2, f"chat (fallback: {fb})")
+                cascade    = self.router.fallback_models
+
+                # Spróbuj kolejno każdy model z kaskady
+                for attempt_idx, fb in enumerate(cascade):
+                    pos_str = f" [{attempt_idx + 1}/{len(cascade)}]" if len(cascade) > 1 else ""
+                    if self.logger:
+                        self.logger.warning(
+                            f"Auto-fallback{pos_str}: {effective_model} → {fb} ({reason_str.lower()})"
+                        )
+                    self.router.activate_fallback(duration_minutes=60)
+                    self.router._fallback_idx = attempt_idx
+                    print(f"\n⚠  {reason_str} – fallback{pos_str}: {fb} (60 min)")
+                    try:
+                        r2 = requests.post(
+                            f"{self.base}/api/chat",
+                            json={"model": fb, "messages": messages, "stream": False},
+                            timeout=timeout,
+                        )
+                        r2.raise_for_status()
+                        return r2.json()["message"]["content"]
+                    except requests.exceptions.RequestException as e_fb:
+                        is_fb_limit = (
+                            hasattr(e_fb, 'response') and
+                            e_fb.response is not None and
+                            getattr(e_fb.response, 'status_code', 0) == 429
+                        )
+                        is_fb_timeout = isinstance(e_fb, requests.exceptions.Timeout)
+                        if (is_fb_limit or is_fb_timeout) and attempt_idx < len(cascade) - 1:
+                            print(f"  ↳ {fb} też niedostępny – próbuję następny...")
+                            continue
+                        self._handle_connection_error(e_fb, f"chat (fallback{pos_str}: {fb})")
+                        break
 
             # Normalny błąd połączenia
             self._handle_connection_error(e, "chat")

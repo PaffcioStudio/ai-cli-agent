@@ -68,6 +68,81 @@ KIEDY UŻYWAĆ sed vs read_file vs Python heredoc:
   patch_file       → wiele zmian naraz w dużym pliku (PREFEROWANE dla kodu)
 
 ====================
+STRATEGIA EDYCJI — NIE PRZEPISUJ OD ZERA
+====================
+
+Gdy naprawiasz błąd lub dodajesz funkcję do istniejącego pliku:
+
+1. ZLOKALIZUJ:
+   grep -n "nazwa_funkcji_lub_klasy" plik.py
+
+2. PODEJRZYJ KONTEKST:
+   sed -n '50,80p' plik.py
+
+3. EDYTUJ PRECYZYJNIE (wybierz odpowiednie narzędzie):
+   - 1 linijka lub prosty wzorzec → sed -i 's/stare/nowe/g' plik.py
+   - wieloliniowy blok z wcięciami → Python heredoc (patrz wyżej)
+   - wiele zmian w dużym pliku → patch_file z SEARCH/REPLACE
+
+4. ZWERYFIKUJ:
+   sed -n '50,80p' plik.py   ← sprawdź czy zmiana jest prawidłowa
+
+NIE używaj create_file do nadpisania pliku z drobnymi zmianami.
+NIE przepisuj pliku od zera jeśli zmieniasz < 30% zawartości.
+
+====================
+DODATKOWE NARZĘDZIA TEKSTOWE
+====================
+
+cut — wycinanie kolumn:
+  cut -d':' -f1 /etc/passwd              # pierwsza kolumna (separator :)
+  cut -d',' -f1,3 dane.csv               # kolumny 1 i 3 z CSV
+  cut -c1-10 plik.txt                    # znaki 1-10 z każdej linii
+
+sort + uniq — liczenie powtórzeń:
+  sort log.txt | uniq -c | sort -nr      # najczęstsze linie (malejąco)
+  sort -u plik.txt                       # tylko unikalne linie
+  sort -k2 -n dane.txt                   # sortuj po kolumnie 2 numerycznie
+
+tee — zapis + wyświetlanie jednocześnie:
+  python main.py | tee log.txt           # pokaż output I zapisz do pliku
+  python main.py | tee -a log.txt        # dołącz do istniejącego pliku
+
+diff — różnice między plikami:
+  diff file1.py file2.py                 # podstawowe różnice
+  diff -u file1.py file2.py             # czytelniejszy format (jak git diff)
+  diff -ur katalog1/ katalog2/          # różnice katalogów rekurencyjnie
+
+tr — zamiana znaków:
+  echo "ABC" | tr 'A-Z' 'a-z'           # zamiana na małe litery
+  cat plik.txt | tr -d '\n'             # usuń znaki nowej linii
+  echo "hello world" | tr ' ' '_'       # zamień spacje na podkreślniki
+
+watch — odświeżanie co X sekund:
+  watch -n 1 nvidia-smi                  # GPU na żywo (co 1 sekundę)
+  watch -n 2 "ps aux | grep python"     # monitoruj procesy
+  watch -n 5 "ls -lh /tmp/*.log"        # obserwuj pliki
+
+xargs — przekazywanie listy jako argumenty:
+  cat lista.txt | xargs rm              # usuń pliki z listy
+  find . -name "*.py" | xargs wc -l    # policz linie w plikach .py
+  find . -name "*.log" | xargs -I{} mv {} /tmp/   # przenieś każdy plik
+
+find — szukanie plików:
+  find . -name "*.py" -size +1M         # duże pliki .py
+  find . -name "*.log" -delete          # usuń wszystkie logi
+  find . -mtime -1                      # zmienione w ostatnie 24h
+  find . -name "*.py" | xargs grep -l "import pygame"  # połączenie z xargs
+
+less — przeglądanie dużych plików:
+  less +120 main.py                     # otwórz od linii 120
+  less -N main.py                       # z numerami linii
+  # sterowanie: q=wyjście, /tekst=szukaj, n=następny, g=góra, G=dół
+
+nl + sed — fragment pliku z numerami linii:
+  nl main.py | sed -n '100,140p'        # linie 100-140 z numeracją
+
+====================
 POBIERANIE DANYCH Z INTERNETU (curl)
 ====================
 

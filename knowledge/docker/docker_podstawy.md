@@ -1,161 +1,181 @@
-# Docker – Komendy i najlepsze praktyki
+# Docker – Podstawy i praktyczne wzorce
 
-## Podstawowe operacje na kontenerach
-
-```bash
-docker run -it ubuntu bash          # uruchom kontener interaktywnie
-docker run -d -p 8080:80 nginx      # uruchom w tle, mapuj porty
-docker run --name moj-kontener nginx # uruchom z nazwą
-docker run --rm ubuntu echo "hello" # usuń kontener po zakończeniu
-docker ps                            # lista uruchomionych kontenerów
-docker ps -a                         # lista wszystkich (w tym zatrzymanych)
-docker stop kontener                 # zatrzymaj kontener
-docker start kontener                # uruchom zatrzymany kontener
-docker restart kontener              # zrestartuj kontener
-docker rm kontener                   # usuń zatrzymany kontener
-docker rm -f kontener                # usuń na siłę (nawet uruchomiony)
-```
-
-## Obrazy (images)
+## Instalacja i weryfikacja
 
 ```bash
-docker images                       # lista lokalnych obrazów
-docker pull nginx:latest            # pobierz obraz z Docker Hub
-docker push user/obraz:tag          # wypchnij obraz do rejestru
-docker build -t moj-obraz:1.0 .     # zbuduj obraz z Dockerfile
-docker build --no-cache -t obraz .  # zbuduj bez cache
-docker rmi obraz                    # usuń obraz
-docker image prune                  # usuń nieużywane obrazy
-docker tag obraz user/obraz:tag     # otaguj obraz
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER   # dodaj do grupy (wyloguj się po tym)
+docker --version
+docker run hello-world
 ```
 
-## Logi i diagnostyka
+## Kontenery – podstawowe komendy
 
 ```bash
-docker logs kontener                # logi kontenera
-docker logs -f kontener             # podgląd logów na żywo
-docker logs --tail 50 kontener      # ostatnie 50 linii
-docker inspect kontener             # szczegółowe informacje JSON
-docker stats                        # zużycie zasobów na żywo
-docker top kontener                 # procesy w kontenerze
-docker exec -it kontener bash       # wejdź do uruchomionego kontenera
-docker exec kontener polecenie      # wykonaj polecenie w kontenerze
+docker ps                        # działające kontenery
+docker ps -a                     # wszystkie (też zatrzymane)
+docker run -it ubuntu bash       # interaktywny
+docker run -d -p 8080:80 nginx   # w tle, port host:kontener
+docker run --rm alpine echo hi   # usuń po zakończeniu
+docker stop / start / restart <id>
+docker rm <id>                   # usuń zatrzymany
+docker rm -f <id>                # force (też działający)
+docker logs -f <id>              # tail logów
+docker exec -it <id> bash        # wejdź do działającego
+docker stats                     # zużycie zasobów live
+docker stats --no-stream         # jednorazowy snapshot
+docker cp <id>:/app/plik ./      # kopiuj plik z kontenera
+docker inspect <id>              # pełne info JSON
 ```
 
-## Wolumeny (volumes)
+## Obrazy
 
 ```bash
-docker volume create moj-wolumin    # utwórz wolumin
-docker volume ls                    # lista woluminów
-docker volume rm moj-wolumin        # usuń wolumin
-docker volume prune                 # usuń nieużywane woluminy
-docker run -v moj-wolumin:/data nginx  # montuj wolumin
-docker run -v /host/path:/container/path nginx  # montuj katalog hosta
+docker images
+docker pull python:3.12-slim
+docker rmi <image_id>
+docker image prune               # usuń nieużywane (dangling)
+docker image prune -a            # wszystkie bez kontenera
+docker build -t myapp:latest .
+docker build --no-cache -t myapp .
+docker history <image>           # warstwy
+docker tag myapp:latest myapp:v1.2
 ```
 
-## Sieci (networks)
-
-```bash
-docker network ls                   # lista sieci
-docker network create moja-siec     # utwórz sieć
-docker network rm moja-siec         # usuń sieć
-docker run --network moja-siec nginx # uruchom w sieci
-docker network connect siec kontener  # podłącz kontener do sieci
-docker network disconnect siec kontener  # odłącz kontener od sieci
-```
-
-## Dockerfile – przykład (Python/Flask)
+## Dockerfile – dobry wzorzec Python
 
 ```dockerfile
-FROM python:3.11-slim
-
+FROM python:3.12-slim
 WORKDIR /app
 
-# Kopiuj tylko requirements najpierw (cache layer)
+# Kopiuj requirements osobno – cache warstwy przy rebuild
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Kopiuj resztę aplikacji
 COPY . .
 
-# Użytkownik bez uprawnień root (bezpieczeństwo)
-RUN adduser --disabled-password --gecos '' appuser
+RUN useradd -m appuser
 USER appuser
 
-EXPOSE 5000
-
-CMD ["python", "app.py"]
+EXPOSE 8000
+CMD ["python", "main.py"]
 ```
 
-## Docker Compose – przykład
+## Dockerfile – multi-stage build (mały obraz końcowy)
+
+```dockerfile
+FROM node:20 AS builder
+WORKDIR /app
+COPY package*.json .
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:20-slim AS runtime
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+```
+
+## .dockerignore – zawsze twórz
+
+```
+node_modules
+.git
+.env
+*.log
+__pycache__
+.pytest_cache
+dist
+build
+```
+
+## Docker Compose – wzorzec z bazą danych
 
 ```yaml
-version: '3.8'
-
+version: '3.9'
 services:
   app:
     build: .
     ports:
-      - "8080:5000"
+      - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://user:pass@db:5432/mydb
-    depends_on:
-      - db
     volumes:
-      - ./uploads:/app/uploads
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   db:
-    image: postgres:15
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass
       POSTGRES_DB: mydb
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf
-    depends_on:
-      - app
+  redis:
+    image: redis:7-alpine
 
 volumes:
   postgres_data:
 ```
 
-## Docker Compose – komendy
-
 ```bash
-docker compose up                   # uruchom wszystkie serwisy
-docker compose up -d                # uruchom w tle
-docker compose down                 # zatrzymaj i usuń kontenery
-docker compose down -v              # usuń też woluminy
-docker compose ps                   # status serwisów
-docker compose logs -f app          # logi konkretnego serwisu
-docker compose build                # zbuduj obrazy
-docker compose pull                 # pobierz najnowsze obrazy
-docker compose exec app bash        # wejdź do kontenera serwisu
-docker compose restart app          # zrestartuj serwis
+docker compose up -d
+docker compose up --build        # z przebudowaniem
+docker compose down
+docker compose down -v           # też usuń volumes
+docker compose logs -f app
+docker compose exec app bash
+docker compose ps
+docker compose pull              # pobierz nowe wersje obrazów
 ```
 
-## Czyszczenie systemu
+## Volumes
 
 ```bash
-docker system prune                 # usuń nieużywane obiekty
-docker system prune -a              # usuń wszystko (w tym nieużywane obrazy)
-docker system df                    # zajmowane miejsce przez Docker
+docker volume ls / create / inspect / rm / prune
+
+# Bind mount (katalog hosta)
+docker run -v /home/user/data:/app/data myapp
+# Named volume
+docker run -v mydata:/app/data myapp
+# Read-only
+docker run -v /config:/app/config:ro myapp
 ```
 
-## Najlepsze praktyki
+## Czyszczenie
 
-1. Używaj `.dockerignore` (jak `.gitignore`) – wyklucz `.venv`, `node_modules`, `.git`, `*.log`
-2. Minimalizuj warstwy – łącz `RUN` polecenia `&&`
-3. Używaj wieloetapowego budowania (`multi-stage build`) dla mniejszych obrazów produkcyjnych
-4. Nie uruchamiaj kontenerów jako root (`USER appuser`)
-5. Używaj konkretnych tagów (`python:3.11-slim`) a nie `latest` w produkcji
-6. Przechowuj sekrety w Docker Secrets lub zmiennych środowiskowych, nie w obrazie
+```bash
+docker system df                 # ile miejsca zajmuje Docker
+docker system prune              # zatrzymane kontenery + sieci + dangling images
+docker system prune -a           # też nieużywane obrazy
+docker system prune -a --volumes # też volumes (ostrożnie!)
+```
+
+## Health check w Dockerfile
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+```
+
+## Typowe problemy
+
+Port already in use: zmień port hosta w -p lub compose.yml
+Permission denied na volume: dodaj `user: "1000:1000"` w compose
+Container exits immediately: CMD musi trzymać proces na pierwszym planie
+Cannot connect to db: użyj depends_on z condition: service_healthy
+Image za duży: użyj slim/alpine i multi-stage build
+Kontener nie startuje: docker logs <id> i docker inspect <id>

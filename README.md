@@ -6,6 +6,7 @@
 Narzędzie CLI wspomagające pracę z projektami przez AI. Nie jest to autonomiczny bot, a kontrolowane narzędzie operatorskie z pelna przejrzystoscia i mozliwoscia cofniecia zmian.
 
 > **UWAGA:** AI CLI nie jest narzedziem do automatyzacji, tylko do wspomaganego podejmowania decyzji technicznych.
+> **BETA:** Panel webowy wciąż jest w fazie rozwojów i mogą pojawiać się błędy. Traktuj go jako ciekawostkę na obecnym etapie.
 
 ---
 
